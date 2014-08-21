@@ -118,4 +118,82 @@
               emacs-lisp "lisp"))
 ;; }}
 
+(setq org-export-html-style "<style type=\"text/css\">
+body {
+     font-family:Times,serif;
+     font-size:100%;
+     line-height:1.5em;
+     max-width: 560px;
+     min-width: 550px;
+     margin:3% auto;
+}
+.author {
+     display:none;
+}
+.title {
+     font-size:2em;
+     line-height:2em;
+     margin:0;
+     padding:0;
+     text-align:center;
+}
+.todo {
+     color:red;
+}
+.done {
+     color:green;
+}
+.WAITING  {
+}
+.timestamp {
+     color:grey;
+}
+.timestamp-kwd {
+     color:CadetBlue;
+}
+.timestamp-wrapper {
+}
+.tag {
+     background-color:lightblue;
+     font-weight:normal;
+}
+._HOME {
+}
+.target {
+     background-color:lavender;
+}
+.linenr {
+}
+.code-highlighted {
+}
+h2 {
+     background-color:#AEC5CE;
+     font-size:1.5em;
+     margin:10px 0;
+     padding:0 2px;
+}
+h3 {
+     border-bottom:1px solid #9AB7C2;
+     font-size:1.2em;
+     margin:5px 0;
+}
+h4 {
+     font-size:1em;
+     margin:5px 0;
+}
+p {
+     margin:8px 0 0 1em;
+}
+#postamble {
+     border:1px solid gray;
+     color:gray;
+     font-size:13px;
+     font-style:italic;
+     line-height:1em;
+     margin-top:2em;
+     padding-bottom:5px;
+}
+</style>")
+
+
 (provide 'init-org)
