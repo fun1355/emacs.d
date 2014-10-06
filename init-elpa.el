@@ -72,6 +72,7 @@ ARCHIVE is the string name of the package archive.")
 
 ;; use packages from melpa only, even packages in elpa.gnu.org are ignored
 (setq package-archives '(("melpa" . "http://melpa.milkbox.net/packages/")
+                         ("marmalade" . "http://marmalade-repo.org/packages/")
                          ("melpa-stable" . "http://hiddencameras.milkbox.net/packages/")
                          ))
 ;; well, melpa does not bother supporting emacs23 any more

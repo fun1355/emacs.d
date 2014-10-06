@@ -66,7 +66,7 @@
 ;; actually, I don't know which major-mode use flyspell.
 (require 'init-spelling)
 (require 'init-xterm)
-(require 'init-osx-keys)
+;; (require 'init-osx-keys)
 (require 'init-gui-frames)
 (require 'init-ido)
 (require 'init-maxframe)
@@ -105,12 +105,12 @@
 (require 'init-cc-mode)
 (require 'init-gud)
 (require 'init-cmake-mode)
-(require 'init-csharp-mode)
+;; (require 'init-csharp-mode)
 (require 'init-linum-mode)
 (require 'init-which-func)
 (require 'init-move-window-buffer)
 ;; (require 'init-gist)
-(require 'init-moz)
+;; (require 'init-moz)
 (require 'init-gtags)
 ;; use evil mode (vi key binding)
 ;(Require 'init-evil)
@@ -119,7 +119,7 @@
 (require 'init-ace-jump-mode)
 (require 'init-bbdb)
 (require 'init-gnus)
-(require 'init-lua-mode)
+;; (require 'init-lua-mode)
 (require 'init-workgroups2)
 (require 'init-term-mode)
 ;;(require 'init-web-mode)
@@ -127,6 +127,7 @@
 (require 'init-slime)
 (when *emacs24* (require 'init-company))
 (require 'init-stripe-buffer)
+(require 'init-ocaml)
 
 (require 'color-theme)
 (require 'color-theme-molokai)
@@ -144,7 +145,7 @@
 (setq idle-require-idle-delay 3)
 (setq idle-require-symbols '(init-lisp
                              init-eim
-                             init-keyfreq
+                             ;; init-keyfreq
                              init-move-window-buffer
                              init-elnode
                              init-doxygen
@@ -183,3 +184,4 @@
 ;;; no-byte-compile: t
 ;;; End:
 (put 'erase-buffer 'disabled nil)
+
