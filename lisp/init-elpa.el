@@ -75,7 +75,8 @@ ARCHIVE is the string name of the package archive.")
 
 ;; well, melpa does not bother supporting emacs23 any more, but cl-lib is still required
 ;; TODO: in half a year, I will remove gnu elpa because emacs 24.3 is the minimum version
-(setq package-archives '(("melpa" . "http://melpa.milkbox.net/packages/")
+(setq package-archives '(;;("melpa" . "http://melpa.milkbox.net/packages/")
+			 ;;("marmalade" . "http://marmalade-repo.org/packages/")
                          ("melpa-stable" . "http://melpa-stable.milkbox.net/packages/")
                          ))
 (if (not *emacs24*) (add-to-list 'package-archives '("localelpa" . "~/.emacs.d/localelpa")))
@@ -239,7 +240,7 @@ ARCHIVE is the string name of the package archive.")
 (require-package 'buffer-move)
 (require-package 'switch-window)
 (require-package 'maxframe)
-(require-package 'cpputils-cmake '(0 4 17) nil)
+(require-package 'cpputils-cmake '(0 4 18) nil)
 (require-package 'flyspell-lazy)
 (require-package 'bbdb '(20130421 1145 0) nil)
 (require-package 'iedit)
