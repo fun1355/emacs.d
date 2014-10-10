@@ -7,9 +7,13 @@
 (evil-mode 1)
 
 ;; {{@see https://github.com/timcharper/evil-surround
-(require 'surround)
-(global-surround-mode 1)
+(require 'evil-surround)
+(global-evil-surround-mode 1)
+(evil-define-key 'visual evil-surround-mode-map "s" 'evil-substitute)
 ;; }}
+
+;; Don't move back the cursor one position when exiting insert mode
+(setq evil-move-cursor-back nil)
 
 (defun toggle-org-or-message-mode ()
   (interactive)
@@ -108,6 +112,7 @@
 (define-key evil-visual-state-map (kbd "M-k") 'evil-exit-visual-state)
 (define-key minibuffer-local-map (kbd "M-k") 'abort-recursive-edit)
 (define-key evil-insert-state-map (kbd "M-j") 'my-yas-expand)
+(define-key evil-emacs-state-map (kbd "M-j") 'my-yas-expand)
 (global-set-key (kbd "M-k") 'keyboard-quit)
 
 (define-key evil-normal-state-map [escape] 'keyboard-quit)
@@ -146,6 +151,9 @@ to replace the symbol under cursor"
 
 (require 'evil-leader)
 (evil-leader/set-key
+  "ae" 'evil-ace-jump-word-mode ; ,e for Ace Jump (word)
+  "al" 'evil-ace-jump-line-mode ; ,l for Ace Jump (line)
+  "ac" 'evil-ace-jump-char-mode ; ,x for Ace Jump (char)
   "as" 'ack-same
   "ac" 'ack
   "aa" 'ack-find-same-file
@@ -158,6 +166,7 @@ to replace the symbol under cursor"
   "mf" 'mark-defun
   "em" 'erase-message-buffer
   "eb" 'eval-buffer
+  "ss" 'evil-surround-region
   "sc" 'shell-command
   "srt" 'sr-speedbar-toggle
   "srr" 'sr-speedbar-refresh-toggle
@@ -165,8 +174,9 @@ to replace the symbol under cursor"
   "cx" 'copy-to-x-clipboard
   "cy" 'strip-convert-lines-into-one-big-string
   "cff" 'current-font-face
-  "fnb" 'cp-filename-of-current-buffer
-  "fpb" 'cp-fullpath-of-current-buffer
+  "fl" 'cp-filename-line-number-of-current-buffer
+  "fn" 'cp-filename-of-current-buffer
+  "fp" 'cp-fullpath-of-current-buffer
   "dj" 'dired-jump ;; open the dired from current file
   "ff" 'toggle-full-window ;; I use WIN+F in i3
   "tm" 'get-term
@@ -204,6 +214,9 @@ to replace the symbol under cursor"
   "im" 'helm-imenu
   "." 'evil-ex
   ;; toggle overview,  @see http://emacs.wordpress.com/2007/01/16/quick-and-dirty-code-folding/
+  "gn" 'git-timemachine-show-next-revisio
+  "gp" 'git-timemachine-show-previous-revision
+  "gw" 'git-timemachine-kill-abbreviated-revision
   "ov" '(lambda () (interactive) (set-selective-display (if selective-display nil 1)))
   "or" 'open-readme-in-git-root-directory
   "mq" '(lambda () (interactive) (man (concat "-k " (thing-at-point 'symbol))))
@@ -243,6 +256,8 @@ to replace the symbol under cursor"
   "rnk" 'rinari-rake
   "rnm" 'rinari-find-model
   "rnl" 'rinari-find-log
+  "rno" 'rinari-console
+  "rnt" 'rinari-find-test
   "rbd" 'robe-doc
   "rbj" 'robe-jump
   "rbr" 'robe-rails-refresh
@@ -293,7 +308,7 @@ to replace the symbol under cursor"
   "xb" 'ido-switch-buffer
   "xc" 'save-buffers-kill-terminal
   "xo" 'helm-find-files
-  "ri" 'yari-helm
+  "ri" '(lambda () (interactive) (require 'helm) (yari-helm))
   "vv" 'scroll-other-window
   "vu" '(lambda () (interactive) (scroll-other-window '-))
   "vr" 'vr/replace
@@ -322,9 +337,6 @@ to replace the symbol under cursor"
   "xvr" 'git-gutter:revert-hunk
   "xvl" 'vc-print-log
   "xvb" 'git-messenger:popup-message
-  "fnn" 'fancy-narrow-to-region
-  "fnd" 'fancy-narrow-to-defun
-  "fnw" 'fancy-widen
   "xnn" 'narrow-or-widen-dwim
   "xnw" 'widen
   "xnd" 'narrow-to-defun

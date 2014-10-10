@@ -95,6 +95,23 @@
            (when ,flagvar
              (,mode-name 1)))))))
 
+(eval-after-load 'grep
+  '(progn
+     (dolist (v '("auto"
+                  "target"
+                  "node_modules"
+                  "bower_components"
+                  ".sass_cache"
+                  ".cache"
+                  ".git"
+                  ".cvs"
+                  ".svn"
+                  ".hg"
+                  "elpa"))
+       (add-to-list 'grep-find-ignored-directories v))
+     ))
+
+(add-hook 'grep-mode-hook (lambda () (toggle-truncate-lines 1)))
 ;;----------------------------------------------------------------------------
 ;; Random line sorting
 ;;----------------------------------------------------------------------------
@@ -111,7 +128,7 @@
                    (lambda (s1 s2) (eq (random 2) 0)))))))
 
 ;need install browse-kill-ring
-(browse-kill-ring-default-keybindings)
+(if *emacs24* (browse-kill-ring-default-keybindings))
 
 (add-hook 'prog-mode-hook
           '(lambda ()
@@ -160,6 +177,10 @@
 (add-to-list 'auto-mode-alist '("\\.ctags\\'" . conf-mode))
 ;; }}
 
+;; java
+(add-to-list 'auto-mode-alist '("\\.aj\\'" . java-mode))
+
+(add-to-list 'auto-mode-alist '("archive-contents\\'" . emacs-lisp-mode))
 ;; makefile
 (add-to-list 'auto-mode-alist '("\\.ninja$" . makefile-gmake-mode))
 
@@ -356,11 +377,27 @@
 (defun cp-filename-of-current-buffer ()
   "copy file name (NOT full path) into the yank ring and OS clipboard"
   (interactive)
-  (let ((filename))
+  (let (filename)
     (when buffer-file-name
       (setq filename (file-name-nondirectory buffer-file-name))
       (copy-yank-str filename)
       (message "filename %s => clipboard & yank ring" filename)
+      )))
+
+(defun cp-filename-line-number-of-current-buffer ()
+  "copy file:line into the yank ring and clipboard"
+  (interactive)
+  (let (filename linenum rlt)
+    (when buffer-file-name
+      (setq filename (file-name-nondirectory buffer-file-name))
+      (setq linenum (save-restriction
+                      (widen)
+                      (save-excursion
+                        (beginning-of-line)
+                        (1+ (count-lines 1 (point))))))
+      (setq rlt (format "%s:%d" filename linenum))
+      (copy-yank-str rlt)
+      (message "%s => clipboard & yank ring" rlt)
       )))
 
 (defun cp-fullpath-of-current-buffer ()
@@ -368,7 +405,7 @@
   (interactive)
   (when buffer-file-name
     (copy-yank-str (file-truename buffer-file-name))
-    (message "full path of current buffer => clipboard & yank ring")
+    (message "file full path => clipboard & yank ring")
     ))
 
 ;; {{ git-messenger
@@ -419,6 +456,19 @@
   )
 
 (add-hook 'minibuffer-setup-hook 'my/paste-in-minibuffer)
+
+(defun paste-from-clipboard-and-cc-kill-ring ()
+  "paste from clipboard and cc the content into kill ring"
+  (interactive)
+  (let (str)
+    (with-temp-buffer
+      (paste-from-x-clipboard)
+      (setq str (buffer-string)))
+    ;; finish the paste
+    (insert str)
+    ;; cc the content into kill ring at the same time
+    (kill-new str)
+    ))
 ;;; }}
 
 (eval-after-load 'speedbar '(if (load "mwheel" t)
@@ -841,21 +891,6 @@ The full path into relative path insert it as a local file link in org-mode"
 (global-set-key (kbd "C-c ; t") 'sdcv-search-input+)
 ;; }}
 
-(defun evil-toggle-input-method ()
-  "when toggle on input method, switch to evil-insert-state if possible.
-when toggle off input method, switch to evil-normal-state if current state is evil-insert-state"
-  (interactive)
-  (if (not current-input-method)
-      (if (not (string= evil-state "insert"))
-          (evil-insert-state))
-    (if (string= evil-state "insert")
-        (evil-normal-state)
-        ))
-  (toggle-input-method))
-
-(global-set-key (kbd "C-\\") 'evil-toggle-input-method)
-
-
 ;; {{smart-compile: http://www.emacswiki.org/emacs/SmartCompile
 (autoload 'smart-compile "smart-compile" "" t)
 ;; }}
@@ -884,6 +919,14 @@ when toggle off input method, switch to evil-normal-state if current state is ev
 ;; }}
 
 (setq color-theme-illegal-faces "^\\(w3-\\|dropdown-\\|info-\\|linum\\|yas-\\|font-lock\\)")
+
+(defun display-line-number ()
+  "display current line number in mini-buffer"
+  (interactive)
+  (let (l)
+    (setq l (line-number-at-pos))
+    (message "line number:%d" l)
+    ))
 
 (defun toggle-web-js-offset ()
   "toggle js2-basic-offset"

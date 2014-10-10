@@ -1,6 +1,6 @@
 ;; -*- coding: utf-8 -*-
 (setq emacs-load-start-time (current-time))
-(add-to-list 'load-path (expand-file-name "~/.emacs.d"))
+(add-to-list 'load-path (expand-file-name "~/.emacs.d/lisp"))
 
 ;;----------------------------------------------------------------------------
 ;; Which functionality to enable (use t or nil for true and false)
@@ -99,7 +99,7 @@
 (require 'init-haskell)
 (require 'init-ruby-mode)
 (require 'init-elisp)
-(require 'init-yasnippet)
+(if *emacs24* (require 'init-yasnippet))
 ;; Use bookmark instead
 (require 'init-zencoding-mode)
 (require 'init-cc-mode)
@@ -128,17 +128,12 @@
 (when *emacs24* (require 'init-company))
 (require 'init-stripe-buffer)
 (require 'init-ocaml)
+(require 'init-eim) ;;  cannot be idle-required
 
+;; color theme
 (require 'color-theme)
 (require 'color-theme-molokai)
-;; color theme
-(if (daemonp) ;; if run from daemon
-  (add-hook 'after-make-frame-functions
-            (lambda (frame)
-              (select-frame frame)
-              (color-theme-molokai)))
-  (color-theme-molokai))
-
+(color-theme-molokai)
 ;; misc has some crucial tools I need immediately
 (require 'init-misc)
 
@@ -159,8 +154,7 @@
 ;;----------------------------------------------------------------------------
 ;; Variables configured via the interactive 'customize' interface
 ;;----------------------------------------------------------------------------
-(if (file-exists-p "~/.custom.el")
-                   (load-file "~/.custom.el"))
+(if (file-exists-p "~/.custom.el") (load-file "~/.custom.el"))
 
 (when (require 'time-date nil t)
    (message "Emacs startup time: %d seconds."

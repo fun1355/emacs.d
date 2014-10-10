@@ -18,7 +18,10 @@
 
 (defadvice package-generate-autoloads (after close-autoloads (name pkg-dir) activate)
   "Stop package.el from leaving open autoload files lying around."
-  (let ((path (expand-file-name (concat name "-autoloads.el") pkg-dir)))
+  (let ((path (expand-file-name (concat
+                                 ;; name is string when emacs <= 24.3.1,
+                                 (if (symbolp name) (symbol-name name) name)
+                                 "-autoloads.el") pkg-dir)))
     (with-current-buffer (find-file-existing path)
       (kill-buffer nil))))
 
@@ -70,13 +73,13 @@ ARCHIVE is the string name of the package archive.")
 ;; (add-to-list 'package-archives '("org" . "http://orgmode.org/elpa/"))
 
 
-;; use packages from melpa only, even packages in elpa.gnu.org are ignored
-(setq package-archives '(("melpa" . "http://melpa.milkbox.net/packages/")
-                         ("marmalade" . "http://marmalade-repo.org/packages/")
-                         ("melpa-stable" . "http://hiddencameras.milkbox.net/packages/")
+;; well, melpa does not bother supporting emacs23 any more, but cl-lib is still required
+;; TODO: in half a year, I will remove gnu elpa because emacs 24.3 is the minimum version
+(setq package-archives '(;;("melpa" . "http://melpa.milkbox.net/packages/")
+	                  		 ;;("marmalade" . "http://marmalade-repo.org/packages/")
+                         ("melpa-stable" . "http://melpa-stable.milkbox.net/packages/")
                          ))
-;; well, melpa does not bother supporting emacs23 any more
-(if (not *emacs24*) (add-to-list 'package-archives '("gnu" . "http://elpa.gnu.org/packages/")))
+(if (not *emacs24*) (add-to-list 'package-archives '("localelpa" . "~/.emacs.d/localelpa")))
 
 ;; Un-comment below line if you download zip file from https://github.com/redguardtoo/myelpa/archive/master.zip and extract its content into ~/myelpa/
 ;; (setq package-archives '(("myelpa" . "~/myelpa")))
@@ -177,16 +180,14 @@ ARCHIVE is the string name of the package archive.")
 (require-package 'gitignore-mode)
 (require-package 'gitconfig-mode)
 (require-package 'wgrep)
-(require-package 'json)
 (require-package 'lua-mode)
 (require-package 'project-local-variables)
-(require-package 'ruby-mode)
 (require-package 'robe)
 (require-package 'inf-ruby '(2 3 0) nil)
 (require-package 'yaml-mode)
 (require-package 'paredit)
 (require-package 'erlang '(20120612 0 0) nil)
-(require-package 'browse-kill-ring)
+(if *emacs24* (require-package 'browse-kill-ring))
 (require-package 'findr)
 (if *emacs24* (require-package 'jump '(2 3 0) nil))
 (require-package 'haml-mode)
@@ -203,11 +204,13 @@ ARCHIVE is the string name of the package archive.")
 (require-package 'rainbow-delimiters)
 (require-package 'textile-mode)
 (require-package 'pretty-mode)
-(if *emacs24* (require-package 'coffee-mode))
+(when *emacs24*
+  (require-package 'coffee-mode)
+  (require-package 'flymake-coffee))
 (require-package 'crontab-mode)
 (require-package 'dsvn)
+(require-package 'git-timemachine)
 (require-package 'exec-path-from-shell)
-(require-package 'flymake-coffee)
 (require-package 'flymake-css)
 (require-package 'flymake-haml)
 (require-package 'flymake-jslint)
@@ -237,14 +240,14 @@ ARCHIVE is the string name of the package archive.")
 (require-package 'buffer-move)
 (require-package 'switch-window)
 (require-package 'maxframe)
-(require-package 'cpputils-cmake '(0 4 8) nil)
+(require-package 'cpputils-cmake '(0 4 18) nil)
 (require-package 'flyspell-lazy)
 (require-package 'bbdb '(20130421 1145 0) nil)
 (require-package 'iedit)
 (require-package 'pomodoro '(20130114 1543 0) nil)
 (require-package 'flymake-lua)
 (require-package 'dropdown-list)
-(require-package 'yasnippet '(0 8 0) nil)
+(if *emacs24* (require-package 'yasnippet '(0 9 0 1) nil))
 ;; rvm-open-gem to get gem's code
 (require-package 'rvm)
 ;; C-x r l to list bookmarks
@@ -258,11 +261,12 @@ ARCHIVE is the string name of the package archive.")
 (require-package 'fancy-narrow)
 (require-package 'sr-speedbar)
 ;; company-mode drop emacs 23 support
-(if (and (>= emacs-major-version 24)) (require-package 'company '(0 8 0) nil))
+(if (>= emacs-major-version 24) (require-package 'company '(0 8 5) nil))
 (require-package 'legalese)
 (require-package 'string-edit)
 (require-package 'dired-details)
-(require-package 'git-gutter '(0 71) nil)
+(require-package 'ag)
+(if *emacs24* (require-package 'git-gutter '(0 71) nil))
 (require-package 'fakir)
 (require-package 'f)
 (require-package 'elnode) ;; elnode dependent on f
