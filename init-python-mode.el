@@ -18,5 +18,4 @@
                                (flymake-python-pyflakes-load)))
 
 
-
 (provide 'init-python-mode)

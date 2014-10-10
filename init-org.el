@@ -2,7 +2,7 @@
 (define-key global-map "\C-ca" 'org-agenda)
 
 ;; {{ export org-mode in Chinese into PDF
-;; @see http://freizl.github.io/posts/tech/2012-04-06-export-orgmode-file-in-Chinese.html
+;; @see http://freizl.github.io/posts/2012-04-06-export-orgmode-file-in-Chinese.html
 ;; and you need install texlive-xetex on different platforms
 ;; To install texlive-xetex:
 ;;    `sudo USE="cjk" emerge texlive-xetex` on Gentoo Linux
