@@ -127,7 +127,7 @@
 (require 'init-slime)
 (when *emacs24* (require 'init-company))
 (require 'init-stripe-buffer)
-(require 'init-ocaml)
+;;(require 'init-ocaml)
 (require 'init-eim) ;;  cannot be idle-required
 
 ;; color theme
@@ -167,7 +167,14 @@
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(bmkp-last-as-first-bookmark-file "~/.emacs.bmk")
- '(safe-local-variable-values (quote ((emacs-lisp-docstring-fill-column . 75) (ruby-compilation-executable . "ruby") (ruby-compilation-executable . "ruby1.8") (ruby-compilation-executable . "ruby1.9") (ruby-compilation-executable . "rbx") (ruby-compilation-executable . "jruby")))))
+ '(delete-selection-mode nil)
+ '(elpy-modules (quote (elpy-module-company elpy-module-flymake elpy-module-sane-defaults)))
+ '(mark-even-if-inactive t)
+ '(python-shell-extra-pythonpaths (quote ("/home/k/Develop/sqlmap")))
+ '(safe-local-variable-values (quote ((emacs-lisp-docstring-fill-column . 75) (ruby-compilation-executable . "ruby") (ruby-compilation-executable . "ruby1.8") (ruby-compilation-executable . "ruby1.9") (ruby-compilation-executable . "rbx") (ruby-compilation-executable . "jruby"))))
+ '(scroll-bar-mode (quote right))
+ '(session-use-package t nil (session))
+ '(transient-mark-mode 1))
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
