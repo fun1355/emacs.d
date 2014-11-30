@@ -128,6 +128,7 @@
 (when *emacs24* (require 'init-company))
 (require 'init-stripe-buffer)
 ;;(require 'init-ocaml)
+;;(require 'init-clojure)
 (require 'init-eim) ;;  cannot be idle-required
 
 ;; color theme
