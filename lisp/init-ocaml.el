@@ -1,13 +1,16 @@
 ;; OCaml
 (setq opam-share (substring (shell-command-to-string "opam config var share 2> /dev/null") 0 -1))
 (add-to-list 'load-path (concat opam-share "/emacs/site-lisp"))
+;; opam install tuareg
+(add-to-list 'load-path (concat opam-share "/tuareg"))
+;; package-install merlin utop tuareg ocp-indent
 (require 'merlin)
 (require 'utop)
 (require 'tuareg)
 (require 'ocp-indent)
-(require 'ocp-index)
+;; (require 'ocp-index)
 
-(setq auto-mode-alist 
+(setq auto-mode-alist
       (append '(("\\.ml[ily]?$" . tuareg-mode)
                 ("\\.topml$" . tuareg-mode))
               auto-mode-alist))

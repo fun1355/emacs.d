@@ -127,14 +127,17 @@
 (require 'init-slime)
 (when *emacs24* (require 'init-company))
 (require 'init-stripe-buffer)
-;;(require 'init-ocaml)
-;;(require 'init-clojure)
+(require 'init-ocaml)
+(require 'init-clojure)
+(require 'init-scheme)
 (require 'init-eim) ;;  cannot be idle-required
 
 ;; color theme
-(require 'color-theme)
-(require 'color-theme-molokai)
-(color-theme-molokai)
+;; (require 'color-theme)
+;; (require 'color-theme-molokai)
+;; (color-theme-molokai)
+(require 'init-color-theme)
+
 ;; misc has some crucial tools I need immediately
 (require 'init-misc)
 
@@ -172,6 +175,7 @@
  '(elpy-modules (quote (elpy-module-company elpy-module-flymake elpy-module-sane-defaults)))
  '(mark-even-if-inactive t)
  '(python-shell-extra-pythonpaths (quote ("/home/k/Develop/sqlmap")))
+ '(quack-programs (quote ("n" "y" "bigloo" "csi" "csi -hygienic" "gosh" "gracket" "gsi" "gsi ~~/syntax-case.scm -" "guile" "kawa" "mit-scheme" "racket" "racket -il typed/racket" "rs" "scheme" "scheme48" "scsh" "sisc" "stklos" "sxi")))
  '(safe-local-variable-values (quote ((emacs-lisp-docstring-fill-column . 75) (ruby-compilation-executable . "ruby") (ruby-compilation-executable . "ruby1.8") (ruby-compilation-executable . "ruby1.9") (ruby-compilation-executable . "rbx") (ruby-compilation-executable . "jruby"))))
  '(scroll-bar-mode (quote right))
  '(session-use-package t nil (session))
