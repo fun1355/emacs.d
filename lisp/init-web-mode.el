@@ -31,7 +31,8 @@
          '(("\\.html\\|\\.ctp\\|\\.ftl\\|\\.jsp\\|\\.php\\|\\.erb\\|\\.rhtml" flymake-html-init))
          )
     (set (make-local-variable 'flymake-err-line-patterns)
-         '(("line \\([0-9]+\\) column \\([0-9]+\\) - \\(Warning\\|Error\\): \\(.*\\)" nil 1 2 4))
+         ;; only validate missing html tags
+         '(("line \\([0-9]+\\) column \\([0-9]+\\) - \\(Warning\\|Error\\): \\(missing <\/[a-z0-9A-Z]+>.*\\|discarding unexpected.*\\)" nil 1 2 4))
          )
     (flymake-mode t)))
 
@@ -44,4 +45,14 @@
             (remove-hook 'yas/after-exit-snippet-hook
                          'web-mode-yasnippet-exit-hook t)
             ))
+
+(eval-after-load 'web-mode
+  '(progn
+     ;; make org-mode export fail, I use evil and evil-matchit
+     ;; to select text, so expand-region.el is not used
+     (remove-hook 'web-mode-hook 'er/add-web-mode-expansions)
+     ;; angular imenu
+     (add-to-list 'web-mode-imenu-regexp-list
+                  '(" \\(ng-[a-z]*\\)=\"\\([^\"]+\\)" 1 2 "="))
+     ))
 (provide 'init-web-mode)

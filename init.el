@@ -38,6 +38,16 @@
 (require 'init-modeline)
 
 ;;----------------------------------------------------------------------------
+;; Less GC, more memor
+;;----------------------------------------------------------------------------
+;; By default Emacs will initiate GC every 0.76 MB allocated
+;; (gc-cons-threshold == 800000).
+;; we increase this to 1GB (gc-cons-threshold == 100000000)
+;; @see http://www.gnu.org/software/emacs/manual/html_node/elisp/Garbage-Collection.html
+(setq-default gc-cons-threshold 100000000
+              gc-cons-percentage 0.5)
+
+;;----------------------------------------------------------------------------
 ;; Load configs for specific features and modes
 ;;----------------------------------------------------------------------------
 (require 'cl-lib)
@@ -46,16 +56,17 @@
 (require 'init-site-lisp) ;; Must come before elpa, as it may provide package.el
 
 ;; win32 auto configuration, assuming that cygwin is installed at "c:/cygwin"
-(condition-case nil
-    (when *win32*
-      (setq cygwin-mount-cygwin-bin-directory "c:/cygwin/bin")
-      (require 'setup-cygwin)
-      ;; better to set HOME env in GUI
-      ;; (setenv "HOME" "c:/cygwin/home/someuser")
-      )
-  (error
-   (message "setup-cygwin failed, continue anyway")
-   ))
+;; (condition-case nil
+;;     (when *win32*
+;;       ;; (setq cygwin-mount-cygwin-bin-directory "c:/cygwin/bin")
+;;       (setq cygwin-mount-cygwin-bin-directory "c:/cygwin64/bin")
+;;       (require 'setup-cygwin)
+;;       ;; better to set HOME env in GUI
+;;       ;; (setenv "HOME" "c:/cygwin/home/someuser")
+;;       )
+;;   (error
+;;    (message "setup-cygwin failed, continue anyway")
+;;    ))
 
 (require 'idle-require)
 
@@ -66,7 +77,7 @@
 ;; actually, I don't know which major-mode use flyspell.
 (require 'init-spelling)
 (require 'init-xterm)
-;; (require 'init-osx-keys)
+(require 'init-osx-keys)
 (require 'init-gui-frames)
 (require 'init-ido)
 (require 'init-maxframe)
@@ -94,10 +105,10 @@
   (require 'init-org)
   (require 'init-org-mime))
 (require 'init-css)
-(require 'init-haml)
 (require 'init-python-mode)
 (require 'init-haskell)
 (require 'init-ruby-mode)
+(require 'init-lisp)
 (require 'init-elisp)
 (if *emacs24* (require 'init-yasnippet))
 ;; Use bookmark instead
@@ -131,6 +142,13 @@
 (require 'init-clojure)
 (require 'init-scheme)
 (require 'init-eim) ;;  cannot be idle-required
+(require 'init-hs-minor-mode)
+;; need statistics of keyfreq asap
+(require 'init-keyfreq)
+(if *emacs24* (require 'init-projectile))
+
+;; misc has some crucial tools I need immediately
+(require 'init-misc)
 
 ;; color theme
 ;; (require 'color-theme)
@@ -142,10 +160,7 @@
 (require 'init-misc)
 
 (setq idle-require-idle-delay 3)
-(setq idle-require-symbols '(init-lisp
-                             init-eim
-                             ;; init-keyfreq
-                             init-move-window-buffer
+(setq idle-require-symbols '(init-writting
                              init-elnode
                              init-doxygen
                              init-pomodoro
@@ -165,27 +180,18 @@
     (time-to-seconds (time-since emacs-load-start-time)))
    )
 
-(custom-set-variables
- ;; custom-set-variables was added by Custom.
- ;; If you edit it by hand, you could mess it up, so be careful.
- ;; Your init file should contain only one such instance.
- ;; If there is more than one, they won't work right.
- '(bmkp-last-as-first-bookmark-file "~/.emacs.bmk")
- '(delete-selection-mode nil)
- '(elpy-modules (quote (elpy-module-company elpy-module-flymake elpy-module-sane-defaults)))
- '(mark-even-if-inactive t)
- '(python-shell-extra-pythonpaths (quote ("/home/k/Develop/sqlmap")))
- '(quack-programs (quote ("n" "y" "bigloo" "csi" "csi -hygienic" "gosh" "gracket" "gsi" "gsi ~~/syntax-case.scm -" "guile" "kawa" "mit-scheme" "racket" "racket -il typed/racket" "rs" "scheme" "scheme48" "scsh" "sisc" "stklos" "sxi")))
- '(safe-local-variable-values (quote ((emacs-lisp-docstring-fill-column . 75) (ruby-compilation-executable . "ruby") (ruby-compilation-executable . "ruby1.8") (ruby-compilation-executable . "ruby1.9") (ruby-compilation-executable . "rbx") (ruby-compilation-executable . "jruby"))))
- '(scroll-bar-mode (quote right))
- '(session-use-package t nil (session))
- '(transient-mark-mode 1))
+;;----------------------------------------------------------------------------
+;; Locales (setting them earlier in this file doesn't work in X)
+;;----------------------------------------------------------------------------
+(require 'init-locales)
+
 (custom-set-faces
  ;; custom-set-faces was added by Custom.
  ;; If you edit it by hand, you could mess it up, so be careful.
  ;; Your init file should contain only one such instance.
  ;; If there is more than one, they won't work right.
  '(window-numbering-face ((t (:foreground "DeepPink" :underline "DeepPink" :weight bold))) t))
+
 ;;; Local Variables:
 ;;; no-byte-compile: t
 ;;; End:

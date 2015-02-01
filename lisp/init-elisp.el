@@ -1,13 +1,9 @@
 (require 'flymake)
 
-(defun elisp-mode-hooks ()
-  "lisp-mode-hooks"
-  (when (require 'eldoc nil t)
-    (setq eldoc-idle-delay 0.2)
-    (setq eldoc-echo-area-use-multiline-p t)
-    (turn-on-eldoc-mode)))
+(autoload 'enable-paredit-mode "paredit")
 
-(add-hook 'emacs-lisp-mode-hook 'elisp-mode-hooks)
+(add-to-list 'auto-mode-alist '("\\.emacs-project\\'" . emacs-lisp-mode))
+(add-to-list 'auto-mode-alist '("archive-contents\\'" . emacs-lisp-mode))
 
 ;; @see http://blog.urth.org/2011/06/02/flymake-versus-the-catalyst-restarter/
 (defun flymake-create-temp-intemp (file-name prefix)
@@ -39,7 +35,7 @@
 
 ;; do not use elisplint
 (defun flymake-elisp-init ()
-  (unless (string-match "^ " (buffer-name))
+  (unless (or (string-match "^ " (buffer-name)) (is-buffer-file-temp))
     (let* ((temp-file (flymake-init-create-temp-buffer-copy
                          'flymake-create-temp-intemp))
            (local-file (file-relative-name
@@ -66,10 +62,27 @@
 
 (push '("\\.el$" flymake-elisp-init) flymake-allowed-file-name-masks)
 
-;; ;; workaround for (eq buffer-file-name nil)
-(defun emacs-lisp-mode-hook-flymake-elisp ()
-  (if buffer-file-name (flymake-mode)))
-(add-hook 'emacs-lisp-mode-hook 'emacs-lisp-mode-hook-flymake-elisp)
+;; ----------------------------------------------------------------------------
+;; Hippie-expand
+;; ----------------------------------------------------------------------------
+(defun set-up-hippie-expand-for-elisp ()
+  "Locally set `hippie-expand' completion functions for use with Emacs Lisp."
+  (make-local-variable 'hippie-expand-try-functions-list)
+  (add-to-list 'hippie-expand-try-functions-list 'try-complete-lisp-symbol t)
+  (add-to-list 'hippie-expand-try-functions-list 'try-complete-lisp-symbol-partially t))
 
+(defun elisp-mode-hooks ()
+  "lisp-mode-hooks"
+  (when (require 'eldoc nil t)
+    (setq eldoc-idle-delay 0.2)
+    (setq eldoc-echo-area-use-multiline-p t)
+    (turn-on-eldoc-mode))
+    (enable-paredit-mode)
+    (rainbow-delimiters-mode t)
+    (set-up-hippie-expand-for-elisp)
+    (flymake-mode)
+    (checkdoc-minor-mode))
+
+(add-hook 'emacs-lisp-mode-hook 'elisp-mode-hooks)
 
 (provide 'init-elisp)

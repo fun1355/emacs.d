@@ -2,9 +2,6 @@
 ;; Some basic preferences
 ;;----------------------------------------------------------------------------
 (setq-default
- blink-cursor-delay 0
- blink-cursor-interval 0.4
- bookmark-default-file "~/.emacs.d/.bookmarks.el"
  buffers-menu-max-size 30
  case-fold-search t
  compilation-scroll-output t
@@ -21,6 +18,10 @@
  truncate-partial-width-windows nil
  ;; no annoying beep on errors
  visible-bell t)
+
+;; use my own bmk if it exists
+(if (file-exists-p (file-truename "~/.emacs.bmk"))
+    (setq bookmark-default-file (file-truename "~/.emacs.bmk")))
 
 (global-auto-revert-mode)
 (setq global-auto-revert-non-file-buffers t
@@ -42,6 +43,7 @@
 (add-to-list 'auto-mode-alist '("\\.[Cc][Ss][Vv]\\'" . csv-mode))
 (autoload 'csv-mode "csv-mode" "Major mode for comma-separated value files." t)
 
+(autoload 'find-by-pinyin-dired "find-by-pinyin-dired" "" t)
 
 ;;----------------------------------------------------------------------------
 ;; Don't disable narrowing commands
@@ -127,19 +129,21 @@
         (sort-subr nil 'forward-line 'end-of-line nil nil
                    (lambda (s1 s2) (eq (random 2) 0)))))))
 
-;need install browse-kill-ring
-(if *emacs24* (browse-kill-ring-default-keybindings))
-
 (add-hook 'prog-mode-hook
           '(lambda ()
-             ;; enable for all programming modes
-             ;; http://emacsredux.com/blog/2013/04/21/camelcase-aware-editing/
-             (subword-mode)
-             (if *emacs24* (electric-pair-mode 1))
-             ;; eldoc, show API doc in minibuffer echo area
-             (turn-on-eldoc-mode)
-             ;; show trailing spaces in a programming mod
-             (setq show-trailing-whitespace t)))
+             (unless (is-buffer-file-temp)
+               ;; highlight FIXME/BUG/TODO in comment
+               (require 'fic-mode)
+               (fic-mode 1)
+               ;; enable for all programming modes
+               ;; http://emacsredux.com/blog/2013/04/21/camelcase-aware-editing/
+               (subword-mode)
+               (if *emacs24* (electric-pair-mode 1))
+               ;; eldoc, show API doc in minibuffer echo area
+               (turn-on-eldoc-mode)
+               ;; show trailing spaces in a programming mod
+               (setq show-trailing-whitespace t)
+               )))
 
 ;; turns on auto-fill-mode, don't use text-mode-hook because for some
 ;; mode (org-mode for example), this will make the exported document
@@ -242,7 +246,7 @@
   "Find all strings matching REGEXP in current buffer.
 grab matched string and insert them into kill-ring"
   (interactive
-   (let* ((regexp (grep-read-regexp)))
+   (let* ((regexp (read-regexp "grep regex:")))
      (list regexp)))
   (let (items rlt)
     (setq items (grep-pattern-into-list regexp))
@@ -253,11 +257,32 @@ grab matched string and insert them into kill-ring"
     (message "matched strings => kill-ring")
     rlt))
 
+(defvar rimenu-position-pair nil "positions before and after imenu jump")
+(add-hook 'imenu-after-jump-hook
+          (lambda ()
+            (let ((start-point (marker-position (car mark-ring)))
+                  (end-point (point)))
+              (setq rimenu-position-pair (list start-point end-point)))))
+
+(defun rimenu-jump ()
+  "jump to the closest before/after position of latest imenu jump"
+  (interactive)
+  (when rimenu-position-pair
+    (let ((p1 (car rimenu-position-pair))
+          (p2 (cadr rimenu-position-pair)))
+
+      ;; jump to the far way point of the rimenu-position-pair
+      (if (< (abs (- (point) p1))
+             (abs (- (point) p2)))
+          (goto-char p2)
+          (goto-char p1))
+      )))
+
 (defun grep-pattern-jsonize-into-kill-ring (regexp)
   "Find all strings matching REGEXP in current buffer.
 grab matched string, jsonize them, and insert into kill ring"
   (interactive
-   (let* ((regexp (grep-read-regexp)))
+   (let* ((regexp (read-regexp "grep regex:")))
      (list regexp)))
   (let (items rlt)
     (setq items (grep-pattern-into-list regexp))
@@ -268,8 +293,28 @@ grab matched string, jsonize them, and insert into kill ring"
     (message "matched strings => json => kill-ring")
     rlt))
 
-; from RobinH
-;Time management
+(defun open-blog-on-current-month ()
+  (interactive)
+  (let (blog)
+   (setq blog (file-truename (concat "~/blog/" (format-time-string "%Y-%m") ".org")) )
+   (find-file blog)))
+
+(defun grep-pattern-cssize-into-kill-ring (regexp)
+  "Find all strings matching REGEXP in current buffer.
+grab matched string, cssize them, and insert into kill ring"
+  (interactive
+   (let* ((regexp (read-regexp "grep regex:")))
+     (list regexp)))
+  (let (items rlt)
+    (setq items (grep-pattern-into-list regexp))
+    (dolist (i items)
+      (setq i (replace-regexp-in-string "\\(class=\\|\"\\)" "" i))
+      (setq rlt (concat rlt (format ".%s {\n}\n\n" i))))
+    (kill-new rlt)
+    (message "matched strings => json => kill-ring")
+    rlt))
+
+;; from RobinH, Time management
 (setq display-time-24hr-format t)
 (setq display-time-day-and-date t)
 (display-time)
@@ -453,19 +498,6 @@ grab matched string, jsonize them, and insert into kill ring"
     (message "file full path => clipboard & yank ring")
     ))
 
-;; {{ git-messenger
-(autoload 'git-messenger:popup-message "git-messenger" "" t)
-;; show details to play `git blame' game
-(setq git-messenger:show-detail t)
-(add-hook 'git-messenger:after-popup-hook (lambda (msg)
-                                            ;; extract commit id and put into the kill ring
-                                            (when (string-match "\\(commit *: *\\)\\([0-9a-z]+\\)" msg)
-                                              (kill-new (match-string 2 msg)))
-                                            (copy-yank-str msg)
-                                            (message "commit details > clipboard & kill-ring")))
-(global-set-key (kbd "C-x v p") 'git-messenger:popup-message)
-;; }}
-
 (defun copy-to-x-clipboard ()
   (interactive)
   (if (region-active-p)
@@ -483,18 +515,24 @@ grab matched string, jsonize them, and insert into kill ring"
         (deactivate-mark))
         (message "No region active; can't yank to clipboard!")))
 
+(defun get-str-from-x-clipboard ()
+  (let (s)
+    (cond
+     ((and (display-graphic-p) x-select-enable-clipboard)
+      (setq s (x-selection 'CLIPBOARD)))
+     (t (setq s (shell-command-to-string
+                 (cond
+                  (*cygwin* "getclip")
+                  (*is-a-mac* "pbpaste")
+                  (t "xsel -ob"))))
+        ))
+    s))
+
+
 (defun paste-from-x-clipboard()
+  "Paste string clipboard"
   (interactive)
-  (cond
-   ((and (display-graphic-p) x-select-enable-clipboard)
-    (insert (x-selection 'CLIPBOARD)))
-   (t (shell-command
-       (cond
-        (*cygwin* "getclip")
-        (*is-a-mac* "pbpaste")
-        (t "xsel -ob"))
-       1))
-   ))
+  (insert (get-str-from-x-clipboard)))
 
 (defun my/paste-in-minibuffer ()
   (local-set-key (kbd "M-y") 'paste-from-x-clipboard)
@@ -862,17 +900,16 @@ The full path into relative path insert it as a local file link in org-mode"
   (interactive)
   (let (str
         rlt
-        (file (read-file-name "The path of image:"))
-        )
+        (file (read-file-name "The path of image:")))
     (with-temp-buffer
       (shell-command (concat "cat " file "|base64") 1)
       (setq str (replace-regexp-in-string "\n" "" (buffer-string)))
       )
-    (setq rlt (concat "background:url(data:image/"
+    (setq rlt (concat "background:url(\"data:image/"
                       (car (last (split-string file "\\.")))
                       ";base64,"
                       str
-                      ") no-repeat 0 0;"
+                      "\") no-repeat 0 0;"
                       ))
     (kill-new rlt)
     (copy-yank-str rlt)
@@ -959,6 +996,7 @@ The full path into relative path insert it as a local file link in org-mode"
 (autoload 'issue-tracker-increment-issue-id-under-cursor "issue-tracker" "" t)
 (autoload 'elpamr-create-mirror-for-installed "elpa-mirror" "" t)
 (autoload 'org2nikola-export-subtree "org2nikola" "" t)
+(autoload 'org2nikola-rerender-published-posts "org2nikola" "" t)
 ;; }}
 
 (setq web-mode-imenu-regexp-list
@@ -971,8 +1009,6 @@ The full path into relative path insert it as a local file link in org-mode"
 (setq imenu-max-item-length 128)
 (setq imenu-max-item-length 64)
 ;; }}
-
-(setq color-theme-illegal-faces "^\\(w3-\\|dropdown-\\|info-\\|linum\\|yas-\\|font-lock\\)")
 
 (defun display-line-number ()
   "display current line number in mini-buffer"
@@ -1034,5 +1070,19 @@ The full path into relative path insert it as a local file link in org-mode"
 ;; {{go-mode
 (require 'go-mode-load)
 ;; }}
+
+;; someone mentioned that blink cursor could slow Emacs24.4
+;; I couldn't care less about cursor, so turn it off explicitly
+;; https://github.com/redguardtoo/emacs.d/issues/208
+;; but somebody mentioned that blink cursor is needed in dark theme
+;; so it should not be turned off by default
+;; (blink-cursor-mode -1)
+
+;; https://github.com/browse-kill-ring/browse-kill-ring
+(require 'browse-kill-ring)
+(browse-kill-ring-default-keybindings)
+
+;; @see http://emacs.stackexchange.com/questions/3322/python-auto-indent-problem/3338#3338
+(if (fboundp 'electric-indent-mode) (electric-indent-mode -1))
 
 (provide 'init-misc)

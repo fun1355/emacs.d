@@ -46,3 +46,7 @@ history
 .directory
 session*
 /tmp
+recentf
+places
+ido.last
+projectile.cache
