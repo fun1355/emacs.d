@@ -160,7 +160,7 @@
 (require 'init-misc)
 
 (setq idle-require-idle-delay 3)
-(setq idle-require-symbols '(init-writting
+(setq idle-require-symbols '(init-writing
                              init-elnode
                              init-doxygen
                              init-pomodoro
