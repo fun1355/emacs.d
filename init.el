@@ -102,7 +102,7 @@ We increase this to 16MB by `(my-optimize-gc 16 0.5)` "
 (require 'init-lua-mode)
 (require 'init-workgroups2)
 (require 'init-term-mode)
-(require 'init-web-mode)
+;; (require 'init-web-mode)  ;; a bug for me
 (require 'init-slime)
 (when *emacs24* (require 'init-company))
 (require 'init-stripe-buffer)
