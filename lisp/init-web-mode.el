@@ -36,23 +36,27 @@
          )
     (flymake-mode t)))
 
-(add-hook 'web-mode-hook
-          (lambda ()
-            (flymake-html-load)
-            (flyspell-mode 1)
-            (remove-hook 'yas-after-exit-snippet-hook
-                         'web-mode-yasnippet-exit-hook t)
-            (remove-hook 'yas/after-exit-snippet-hook
-                         'web-mode-yasnippet-exit-hook t)
-            ))
+(defun web-mode-hook-setup ()
+  (unless (is-buffer-file-temp)
+	(flymake-html-load)
+	(unless *no-memory*
+	  (flyspell-mode 1))
+	(remove-hook 'yas-after-exit-snippet-hook
+				 'web-mode-yasnippet-exit-hook t)
+	(remove-hook 'yas/after-exit-snippet-hook
+				 'web-mode-yasnippet-exit-hook t)))
+(add-hook 'web-mode-hook 'web-mode-hook-setup)
 
 (eval-after-load 'web-mode
   '(progn
      ;; make org-mode export fail, I use evil and evil-matchit
      ;; to select text, so expand-region.el is not used
      (remove-hook 'web-mode-hook 'er/add-web-mode-expansions)
-     ;; angular imenu
-     (add-to-list 'web-mode-imenu-regexp-list
-                  '(" \\(ng-[a-z]*\\)=\"\\([^\"]+\\)" 1 2 "="))
+     (setq web-mode-imenu-regexp-list
+           '(("<\\(h[1-9]\\)\\([^>]*\\)>\\([^<]*\\)" 1 3 ">" nil)
+             ("^[ \t]*<\\([@a-z]+\\)[^>]*>? *$" 1 " id=\"\\([a-zA-Z0-9_]+\\)\"" "#" ">")
+             ("^[ \t]*<\\(@[a-z.]+\\)[^>]*>? *$" 1 " contentId=\"\\([a-zA-Z0-9_]+\\)\"" "=" ">")
+             ;; angular imenu
+             (" \\(ng-[a-z]*\\)=\"\\([^\"]+\\)" 1 2 "=")))
      ))
 (provide 'init-web-mode)

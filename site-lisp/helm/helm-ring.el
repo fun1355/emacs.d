@@ -1,6 +1,6 @@
 ;;; helm-ring.el --- kill-ring, mark-ring, and register browsers for helm. -*- lexical-binding: t -*-
 
-;; Copyright (C) 2012 ~ 2014 Thierry Volpiatto <thierry.volpiatto@gmail.com>
+;; Copyright (C) 2012 ~ 2015 Thierry Volpiatto <thierry.volpiatto@gmail.com>
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -41,11 +41,6 @@ If nil or zero (disabled), don't truncate candidate, show all."
           (integer :tag "Max number of lines"))
   :group 'helm-ring)
 
-(defcustom helm-kill-ring-show-completion t
-  "Show yank contents with an overlay in current buffer."
-  :group 'helm-ring
-  :type 'boolean)
-
 (defcustom helm-register-max-offset 160
   "Max size of string register entries before truncating."
   :group 'helm-ring
@@ -64,19 +59,20 @@ If nil or zero (disabled), don't truncate candidate, show all."
   "Keymap for `helm-show-kill-ring'.")
 
 (defvar helm-source-kill-ring
-  `((name . "Kill Ring")
-    (init . (lambda () (helm-attrset 'last-command last-command)))
-    (candidates . helm-kill-ring-candidates)
-    (filtered-candidate-transformer helm-kill-ring-transformer)
-    (action . (("Yank" . helm-kill-ring-action)
-               ("Delete" . (lambda (candidate)
-                             (cl-loop for cand in (helm-marked-candidates)
-                                   do (setq kill-ring
-                                            (delete cand kill-ring)))))))
-    (keymap . ,helm-kill-ring-map)
-    (last-command)
-    (migemo)
-    (multiline))
+  (helm-build-sync-source "Kill Ring"
+    :init (lambda () (helm-attrset 'last-command last-command))
+    :candidates #'helm-kill-ring-candidates
+    :filtered-candidate-transformer #'helm-kill-ring-transformer
+    :action '(("Yank" . helm-kill-ring-action)
+              ("Delete" . (lambda (candidate)
+                            (cl-loop for cand in (helm-marked-candidates)
+                                     do (setq kill-ring
+                                              (delete cand kill-ring))))))
+    :persistent-action (lambda (_candidate) (ignore))
+    :persistent-help "DoNothing"
+    :keymap helm-kill-ring-map
+    :migemo t
+    :multiline t)
   "Source for browse and insert contents of kill-ring.")
 
 (defun helm-kill-ring-candidates ()
@@ -88,21 +84,23 @@ If nil or zero (disabled), don't truncate candidate, show all."
 (defun helm-kill-ring-transformer (candidates _source)
   "Display only the `helm-kill-ring-max-lines-number' lines of candidate."
   (cl-loop for i in candidates
-        for nlines = (with-temp-buffer (insert i) (count-lines (point-min) (point-max)))
-        if (and helm-kill-ring-max-lines-number
-                (> nlines helm-kill-ring-max-lines-number))
-        collect (cons
-                 (with-temp-buffer
-                   (insert i)
-                   (goto-char (point-min))
-                   (concat
-                    (buffer-substring
-                     (point-min)
-                     (save-excursion
-                       (forward-line helm-kill-ring-max-lines-number)
-                       (point)))
-                    "[...]")) i)
-        else collect i))
+           when (get-text-property 0 'read-only i)
+           do (set-text-properties 0 (length i) '(read-only nil) i)
+           for nlines = (with-temp-buffer (insert i) (count-lines (point-min) (point-max)))
+           if (and helm-kill-ring-max-lines-number
+                   (> nlines helm-kill-ring-max-lines-number))
+           collect (cons
+                    (with-temp-buffer
+                      (insert i)
+                      (goto-char (point-min))
+                      (concat
+                       (buffer-substring
+                        (point-min)
+                        (save-excursion
+                          (forward-line helm-kill-ring-max-lines-number)
+                          (point)))
+                       "[...]")) i)
+           else collect i))
 
 (defun helm-kill-ring-action (str)
   "Insert STR in `kill-ring' and set STR to the head.
@@ -159,42 +157,39 @@ replace with STR as yanked string."
           finally return recip)))
 
 (defvar helm-source-mark-ring
-  '((name . "mark-ring")
-    (candidates . helm-mark-ring-get-candidates)
-    (action . (("Goto line"
-                . (lambda (candidate)
-                    (helm-goto-line (string-to-number candidate)))))) 
-    (persistent-action . (lambda (candidate)
-                           (helm-goto-line (string-to-number candidate))
-                           (helm-highlight-current-line)))
-    (persistent-help . "Show this line")))
+  (helm-build-sync-source "mark-ring"
+    :candidates #'helm-mark-ring-get-candidates
+    :action '(("Goto line"
+               . (lambda (candidate)
+                   (helm-goto-line (string-to-number candidate))))) 
+    :persistent-action (lambda (candidate)
+                         (helm-goto-line (string-to-number candidate))
+                         (helm-highlight-current-line))
+    :persistent-help "Show this line"))
 
 
 ;;; Global-mark-ring
 (defvar helm-source-global-mark-ring
-  '((name . "global-mark-ring")
-    (candidates . helm-global-mark-ring-get-candidates)
-    (action . (("Goto line"
-                . (lambda (candidate)
-                    (let ((items (split-string candidate ":")))
-                      (helm-switch-to-buffer (cl-second items))
-                      (helm-goto-line (string-to-number (car items))))))))
-    (persistent-action . (lambda (candidate)
-                           (let ((items (split-string candidate ":")))
-                             (helm-switch-to-buffer (cl-second items))
-                             (helm-goto-line (string-to-number (car items)))
-                             (helm-highlight-current-line))))
-    (persistent-help . "Show this line")))
+  (helm-build-sync-source "global-mark-ring"
+    :candidates #'helm-global-mark-ring-get-candidates
+    :action '(("Goto line"
+              . (lambda (candidate)
+                  (let ((items (split-string candidate ":")))
+                    (switch-to-buffer (cl-second items))
+                    (helm-goto-line (string-to-number (car items)))))))
+    :persistent-action (lambda (candidate)
+                         (let ((items (split-string candidate ":")))
+                           (switch-to-buffer (cl-second items))
+                           (helm-goto-line (string-to-number (car items)))
+                           (helm-highlight-current-line)))
+    :persistent-help "Show this line"))
 
 (defun helm-global-mark-ring-format-buffer (marker)
   (with-current-buffer (marker-buffer marker)
     (goto-char marker)
     (forward-line 0)
-    (let (line)
-      (if (string= "" line)
-          (setq line  "<EMPTY LINE>")
-        (setq line (car (split-string (thing-at-point 'line)
-                                      "[\n\r]"))))
+    (let ((line (car (split-string (thing-at-point 'line) "[\n\r]"))))
+      (when (string= "" line) (setq line  "<EMPTY LINE>")) 
       (format "%7d:%s:    %s"
               (line-number-at-pos) (marker-buffer marker) line))))
 
@@ -202,23 +197,23 @@ replace with STR as yanked string."
   (let ((marks global-mark-ring))
     (when marks
       (cl-loop for i in marks
-            for gm = (unless (or (string-match
-                                  "^ " (format "%s" (marker-buffer i)))
-                                 (null (marker-buffer i)))
-                       (helm-global-mark-ring-format-buffer i))
-            when (and gm (not (member gm recip)))
-            collect gm into recip
-            finally return recip))))
+               for mb = (marker-buffer i)
+               for gm = (unless (or (string-match "^ " (format "%s" mb))
+                                    (null mb))
+                          (helm-global-mark-ring-format-buffer i))
+               when (and gm (not (member gm recip)))
+               collect gm into recip
+               finally return recip))))
 
 
 ;;;; <Register>
 ;;; Insert from register
 (defvar helm-source-register
-  '((name . "Registers")
-    (candidates . helm-register-candidates)
-    (action-transformer . helm-register-action-transformer)
-    (multiline)
-    (action))
+  (helm-build-sync-source "Registers"
+    :candidates #'helm-register-candidates
+    :action-transformer #'helm-register-action-transformer
+    :multiline t
+    :action nil)
   "See (info \"(emacs)Registers\")")
 
 (defun helm-register-candidates ()
@@ -245,7 +240,14 @@ replace with STR as yanked string."
           ((and (consp val) (window-configuration-p (car val)))
            (list "window configuration."
                  'jump-to-register))
-          ((and (consp val) (frame-configuration-p (car val)))
+          ((and (vectorp val)
+                (fboundp 'undo-tree-register-data-p)
+                (undo-tree-register-data-p (elt val 1)))
+           (list
+            "Undo-tree entry."
+            'undo-tree-restore-state-from-register))
+          ((or (and (vectorp val) (eq 'registerv (aref val 0)))
+               (and (consp val) (frame-configuration-p (car val))))
            (list "frame configuration."
                  'jump-to-register))
           ((and (consp val) (eq (car val) 'file))
@@ -277,10 +279,6 @@ replace with STR as yanked string."
             'insert-register
             'append-to-register
             'prepend-to-register))
-          ((vectorp val)
-           (list
-            "Undo-tree entry."
-            'undo-tree-restore-state-from-register))
           (t
            "GARBAGE!"))
         collect (cons (format "Register %3s:\n %s" key (car string-actions))
@@ -357,10 +355,52 @@ It is drop-in replacement of `yank-pop'.
 
 First call open the kill-ring browser, next calls move to next line."
   (interactive)
-  (helm :sources helm-source-kill-ring
-        :buffer "*helm kill ring*"
-        :resume 'noresume
-        :allow-nest t))
+  (let ((enable-recursive-minibuffers t))
+    (helm :sources helm-source-kill-ring
+          :buffer "*helm kill ring*"
+          :resume 'noresume
+          :allow-nest t)))
+
+(defvar helm-kmacro-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map helm-map)
+    (define-key map (kbd "C-c ?") 'helm-kmacro-help)
+    map))
+
+;;;###autoload
+(defun helm-execute-kmacro ()
+  "Keyboard macros with helm interface.
+Define your macros with `f3' and `f4'.
+See (info \"(emacs) Keyboard Macros\") for detailed infos.
+This command is useful when used with persistent action."
+  (interactive)
+  (helm :sources
+        (helm-build-sync-source "Kmacro"
+          :candidates (lambda ()
+                        (helm-fast-remove-dups
+                         (cons (kmacro-ring-head)
+                               kmacro-ring)
+                         :test 'equal))
+          :multiline t
+          :keymap helm-kmacro-map
+          :candidate-transformer
+          (lambda (candidates)
+            (cl-loop for c in candidates collect
+                     (propertize (help-key-description (car c) nil)
+                                 'helm-realvalue c)))
+          :persistent-help "Execute kmacro"
+          :action
+          (helm-make-actions
+           "Execute kmacro (`C-u <n>' to execute <n> times)"
+           (lambda (candidate)
+             (interactive)
+             ;; Move candidate on top of list for next use.
+             (setq kmacro-ring (delete candidate kmacro-ring))
+             (kmacro-push-ring)
+             (kmacro-split-ring-element candidate)
+             (kmacro-exec-ring-item
+              candidate helm-current-prefix-arg))))
+        :buffer "*helm kmacro*"))
 
 (provide 'helm-ring)
 

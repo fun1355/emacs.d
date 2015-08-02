@@ -1,3 +1,15 @@
+;; elisp version of try...catch...finally
+(defmacro safe-wrap (fn &rest clean-up)
+  `(unwind-protect
+       (let (retval)
+         (condition-case ex
+             (setq retval (progn ,fn))
+           ('error
+            (message (format "Caught exception: [%s]" ex))
+            (setq retval (cons 'exception (list ex)))))
+         retval)
+     ,@clean-up))
+
 ;;----------------------------------------------------------------------------
 ;; Handier way to add modes to auto-mode-alist
 ;;----------------------------------------------------------------------------
@@ -87,6 +99,7 @@
              (progn ,@forms)
            (select-frame ,prev-frame))))))
 
+(defvar load-user-customized-major-mode-hook t)
 (defvar cached-normal-file-full-path nil)
 (defun is-buffer-file-temp ()
   (interactive)
@@ -95,6 +108,7 @@
         org
         (rlt t))
     (cond
+     ((not load-user-customized-major-mode-hook) t)
      ((not f)
       ;; file does not exist at all
       (setq rlt t))
@@ -111,11 +125,5 @@
       (setq cached-normal-file-full-path f)
       (setq rlt nil)))
     rlt))
-
-(defun my-project-name-contains-substring (REGEX)
-  (let ((dir (if (buffer-file-name)
-                 (file-name-directory (buffer-file-name))
-               "")))
-    (string-match-p REGEX dir)))
 
 (provide 'init-utils)

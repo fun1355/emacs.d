@@ -1,12 +1,11 @@
 (add-hook 'prog-mode-hook 'global-company-mode)
 (add-hook 'cmake-mode-hook 'global-company-mode)
 
-;; does not matter, I never use this hotkey
-(global-set-key (kbd "C-c o") 'company-complete)
 (setq company-require-match nil)
 ;; press SPACE will accept the highlighted candidate and insert a space
 ;; `M-x describe-variable company-auto-complete-chars` for details
-(setq company-auto-complete t)
+;; That's BAD idea.
+(setq company-auto-complete nil)
 
 (if (fboundp 'evil-declare-change-repeat)
     (mapc #'evil-declare-change-repeat
@@ -19,6 +18,10 @@
 
 (eval-after-load 'company
   '(progn
+     ;; @see https://github.com/company-mode/company-mode/issues/348
+     (require 'company-statistics)
+     (company-statistics-mode)
+
      (add-to-list 'company-backends 'company-cmake)
      (add-to-list 'company-backends 'company-c-headers)
      ;; can't work with TRAMP
@@ -32,5 +35,8 @@
      (setq company-idle-delay 0.2)
      (setq company-clang-insert-arguments nil)
      ))
+
+;; company should be case sensitive
+(setq company-dabbrev-downcase nil)
 
 (provide 'init-company)

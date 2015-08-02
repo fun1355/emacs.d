@@ -35,22 +35,25 @@
 (defun evilmi-html-get-tag ()
   (let ((b (line-beginning-position))
         (e (line-end-position))
+        (looping t)
         (html-tag-char (string-to-char "<"))
         (char (following-char))
         (p (point))
         (found_tag -1)
-        (rlt nil)
-        )
+        (rlt nil))
 
     (save-excursion
       ;; search backward
-      (if (not (= char html-tag-char))
-          (while (and (<= b (point)) (not (= char 60)))
-            (setq char (following-char))
-            (setq p (point))
-            (backward-char)
-            )
-        )
+      (unless (= char html-tag-char)
+        (while (and looping (<= b (point)) (not (= char 60)))
+          (setq char (following-char))
+          (setq p (point))
+          (if (= p (point-min))
+              ;; need get out of loop anyway
+              (setq looping nil)
+            (backward-char))
+          ))
+
       ;; search forward
       (if (not (= char html-tag-char))
           (save-excursion
@@ -83,21 +86,23 @@
         )
       )
     (setq rlt (list p found_tag ""))
-    rlt
-    )
-  )
+    rlt))
 
 ;;;###autoload
 (defun evilmi-html-jump (rlt NUM)
   (let ((p (nth 0 rlt))
         (tag-type (nth 1 rlt))
         (tag-keyword (nth 2 rlt))
-        )
+        backup-forward-sexp-function)
 
+    ;; web-mode-forward-sexp is assigned to forward-sexp-function
+    ;; it's buggy in web-mode v11, here is the workaround
+    (setq backup-forward-sexp-function forward-sexp-function)
+    (setq forward-sexp-function nil)
     (if (=  1 tag-type) (sgml-skip-tag-backward NUM))
     (if (=  0 tag-type) (sgml-skip-tag-forward NUM))
+    (setq forward-sexp-function backup-forward-sexp-function)
     (point)
-    )
-  )
+    ))
 
 (provide 'evil-matchit-html)

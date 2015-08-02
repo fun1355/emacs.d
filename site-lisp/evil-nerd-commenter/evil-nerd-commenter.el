@@ -1,10 +1,10 @@
 ;;; evil-nerd-commenter --- Comment/uncomment lines efficiently. Like Nerd Commenter in Vim
 
-;; Copyright (C) 2013 Chen Bin
+;; Copyright (C) 2013-2015, Chen Bin
 
 ;; Author: Chen Bin <chenbin.sh@gmail.com>
 ;; URL: http://github.com/redguardtoo/evil-nerd-commenter
-;; Version: 1.5.12
+;; Version: 2.0
 ;; Keywords: commenter vim line evil
 ;;
 ;; This file is not part of GNU Emacs.
@@ -31,14 +31,8 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-;;; WARNING:
-
-;; Emacs v24.4 has some issue if and only if you install evil-nerd-commenter from package manager (elpa/melpa/...).
-;;
-;; This can be *easily resolved* by running below command line in shell,
-;; find ~/.emacs.d -type f -iwholename '*/evil-nerd-commenter*.elc' | xargs rm
-
 ;;; Commentary:
+
 ;;
 ;; This program emulates nerd-commenter.vim by Marty Grenfell.
 ;;
@@ -90,14 +84,9 @@
 
 ;;; Code:
 
-;; Example, press ",,a{" will change C code:
-;;   {printf("hello");} => /* {printf("hello");}*/
-;; google "vim text object for more syntax"
-(defcustom evilnc-hotkey-comment-operator ",," "The hot key for evilnc-comment-operator to (un)comment text object"
-  :type 'string
-  :group 'evil-nerd-commenter)
-
-(defvar evilnc-invert-comment-line-by-line nil "if t then invert region comment status line by line")
+(defvar evilnc-invert-comment-line-by-line nil
+  "If t then invert region comment status line by line.
+Please note it has NOT effect on evil text object!")
 
 ;; shamelessly copied from goto-line
 (defun evilnc--goto-line (line)
@@ -108,57 +97,94 @@
       (re-search-forward "[\n\C-m]" nil 'end (1- line))
       (forward-line (1- line)))))
 
+;; Since web-mode changes, the best way is to replace it with my own API
+(defun evilnc--web-mode-is-comment (&optional pos)
+  (unless pos (setq pos (point)))
+  (not (null (or (eq (get-text-property pos 'tag-type) 'comment)
+                 (eq (get-text-property pos 'block-token) 'comment)
+                 (eq (get-text-property pos 'part-token) 'comment)))))
+
 (defun evilnc--fix-buggy-major-modes ()
   "fix major modes whose comment regex is buggy.
 @see http://lists.gnu.org/archive/html/bug-gnu-emacs/2013-03/msg00891.html"
-  (when (eq major-mode 'autoconf-mode)
+  (if (eq major-mode 'autoconf-mode)
     ;; since comment-use-syntax is nil in autoconf.el, the comment-start-skip need
-    ;; make sure the its first parenthesized expression match the string exactly before
-    ;; the "dnl", check the comment-start-skip in lisp-mode may give you some hint.
+    ;; make sure its first parenthesized expression match the string exactly before
+    ;; the "dnl", check the comment-start-skip in lisp-mode for sample.
     ;; See code in (defun comment-search-forward) from emacs 24.2.1:
     ;; (if (not comment-use-syntax)
     ;;     (if (re-search-forward comment-start-skip limit noerror)
     ;;     (or (match-end 1) (match-beginning 0)))
     ;;     (do-something))
     ;; My regex makes sure (match-end 1) return the position of comment starter
-    (when (and (boundp 'comment-use-syntax) (not comment-use-syntax))
+    (if (and (boundp 'comment-use-syntax) (not comment-use-syntax))
         ;; Maybe autoconf.el will (setq comment-use-syntax t) in the future?
-        (setq comment-start-skip "^\\(\\s*\\)\\(dnl\\|#\\) +"))
-    ))
+        (setq comment-start-skip "^\\(\\s*\\)\\(dnl\\|#\\) +"))))
 
 (defun evilnc--operation-on-lines-or-region (fn &optional NUM)
-  (if (not (region-active-p))
-      (let ((b (line-beginning-position)) e)
-        (save-excursion
-          (forward-line (- NUM 1))
-          (setq e (line-end-position))
-          )
-        (funcall fn b e))
-    ;; expand selected region
-    (progn
+  (cond
+   ((not (region-active-p))
+    (let ((b (line-beginning-position)) e)
       (save-excursion
-        (let ((b (region-beginning))
-              (e (region-end))
-              )
-          ;; another work around for evil-visual-line bug:
-          ;; in evil-mode, if we use hot key V `M-x evil-visual-line` to select line
-          ;; the (line-beginning-position) of the line which is after the last selected
-          ;; line is always (region-end)! Don't know why.
-          (if (and (> e b)
-                     (save-excursion (goto-char e) (= e (line-beginning-position)))
-                     (boundp 'evil-state) (eq evil-state 'visual))
-              (setq e (1- e)))
+        (forward-line (- NUM 1))
+        (setq e (line-end-position))
+        )
+      (funcall fn b e)))
+   ((and (<= (line-beginning-position) (region-beginning))
+          (<= (region-end) (line-end-position)))
+    ;; Select region inside ONE line
+    (cond
+     ;; Well, looks current comment syntax is NOT fit for comment out a region.
+     ;; So we also need hack the comment-start and comment-end
+     ((and (string= "" comment-end)
+           (member major-mode '(java-mode
+                                javascript-mode
+                                js-mode
+                                js2-mode
+                                js3-mode
+                                c++-mode
+                                objc-mode)))
+      (let ((comment-start-old comment-start)
+            (comment-end-old comment-end)
+            (comment-start-skip-old comment-start-skip)
+            (comment-end-skip-old comment-end-skip))
 
-          (goto-char b)
-          (setq b (line-beginning-position))
-          (goto-char e)
-          (setq e (line-end-position))
-          (funcall fn b e)
-          ))
-      )
-    )
-  )
+        ;; use C comment syntax temporarily
+        (setq comment-start "/* ")
+        (setq comment-end " */")
+        (setq comment-start-skip "\\(//+\\|/\\*+\\)\\s *")
+        (setq comment-end-skip "[ 	]*\\(\\s>\\|\\*+/\\)")
 
+        (funcall fn (region-beginning) (region-end))
+
+        ;; Restore the original comment syntax
+        (setq comment-start comment-start-old)
+        (setq comment-end comment-end-old)
+        (setq comment-start-skip comment-start-skip-old)
+        (setq comment-end-skip comment-end-skip-old)))
+     ;; just comment out the region
+     (t (funcall fn (region-beginning) (region-end)))))
+   (t
+    ;; selected region spans MORE than one line
+    (save-excursion
+      (let ((b (region-beginning))
+            (e (region-end)))
+        ;; Another work around for evil-visual-line bug:
+        ;; In evil-mode, if we use hotkey V or `M-x evil-visual-line` to select line,
+        ;; the (line-beginning-position) of the line which is after the last selected
+        ;; line is always (region-end)! Don't know why.
+        (if (and (> e b)
+                 (save-excursion (goto-char e) (= e (line-beginning-position)))
+                 (boundp 'evil-state) (eq evil-state 'visual))
+            (setq e (1- e)))
+
+        (goto-char b)
+        (setq b (line-beginning-position))
+        (goto-char e)
+        (setq e (line-end-position))
+        (funcall fn b e)
+        )))
+   ))
 
 (defun evilnc--get-one-paragraph-region ()
   (let (b e)
@@ -219,13 +245,12 @@
           (if (> newend end) (decf newend))
 
           (list newbeg newend)
-          )
-        )
+          ))
     (list beg end)
     ))
 
 (defun evilnc--invert-comment (beg end)
-  "scan the region line by line, invert its comment status"
+  "Scan the region line by line, invert its comment status"
   (let (done b e)
     (save-excursion
       (goto-char end)
@@ -242,7 +267,7 @@
                  b e)
 
         (forward-line -1)
-        (when (or (= (line-beginning-position) b) (< (line-end-position) beg))
+        (if (or (= (line-beginning-position) b) (< (line-end-position) beg))
           (setq done t))
         ))))
 
@@ -296,12 +321,12 @@
              (goto-char beg)
              (goto-char (line-end-position))
              (re-search-backward "^\\|[^[:space:]]")
-             (web-mode-is-comment))
-           (web-mode-is-comment (/ (+ beg end) 2))
+             (evilnc--web-mode-is-comment))
+           (evilnc--web-mode-is-comment (/ (+ beg end) 2))
            (save-excursion
              (goto-char end)
              (back-to-indentation)
-             (web-mode-is-comment))
+             (evilnc--web-mode-is-comment))
            )
       ;; don't know why, but we need goto the middle of comment
       ;; in order to uncomment, or else trailing spaces will be appended
@@ -309,12 +334,11 @@
       (web-mode-uncomment (/ (+ beg end) 2))
       )
      (t
-      (when (not (region-active-p))
+      (unless (region-active-p)
         (push-mark beg t t)
         (goto-char end))
       (web-mode-comment (/ (+ beg end) 2)))
-     )
-    )
+     ))
     (t
      (evilnc--working-on-region beg end 'comment-or-uncomment-region))
     ))
@@ -341,6 +365,7 @@
     ))
 
 ;; ==== below this line are public commands
+
 ;;;###autoload
 (defun evilnc-comment-or-uncomment-paragraphs (&optional NUM)
   "Comment or uncomment paragraph(s). A paragraph is a continuation non-empty lines.
@@ -411,6 +436,7 @@ or 'C-u 3 M-x evilnc-quick-comment-or-uncomment-to-the-line' to comment to the l
 
 ;;;###autoload
 (defun evilnc-toggle-invert-comment-line-by-line ()
+  "Please note this command may NOT work on complex evil text objects"
   (interactive)
   (if evilnc-invert-comment-line-by-line
       (setq evilnc-invert-comment-line-by-line nil)
@@ -437,7 +463,9 @@ or 'C-u 3 M-x evilnc-quick-comment-or-uncomment-to-the-line' to comment to the l
    Case 1: If no region selected, comment/uncomment on current line. if NUM>1, comment/uncomment
    extra N-1 lines from next line
    Case 2: If a region selected, the region is expand to make sure the region contain
-   whole lines. Then we comment/uncomment the expanded region. NUM is ignored."
+   whole lines. Then we comment/uncomment the expanded region. NUM is ignored.
+   Case 3: If a region in ONE line is selected, we comment/uncomment that region.
+   In this case, CORRECT comment syntax will be used for C++/Java/Javascript."
   (interactive "p")
   ;; donot move the cursor
   ;; support negative number
@@ -519,16 +547,20 @@ or 'C-u 3 M-x evilnc-quick-comment-or-uncomment-to-the-line' to comment to the l
 ;;;###autoload
 (defun evilnc-version ()
   (interactive)
-  (message "1.5.12"))
+  (message "2.0"))
 
 ;;;###autoload
 (defun evilnc-default-hotkeys ()
   "Set the hotkeys of evil-nerd-comment"
   (interactive)
+
+  ;; Install hotkeys for Emacs mode
   (global-set-key (kbd "M-;") 'evilnc-comment-or-uncomment-lines)
   (global-set-key (kbd "C-c l") 'evilnc-quick-comment-or-uncomment-to-the-line)
   (global-set-key (kbd "C-c c") 'evilnc-copy-and-comment-lines)
   (global-set-key (kbd "C-c p") 'evilnc-comment-or-uncomment-paragraphs)
+
+  ;; Install key bindings for evil
   (eval-after-load 'evil
     '(progn
        (define-key evil-normal-state-map ",ci" 'evilnc-comment-or-uncomment-lines)
@@ -537,7 +569,14 @@ or 'C-u 3 M-x evilnc-quick-comment-or-uncomment-to-the-line' to comment to the l
        (define-key evil-normal-state-map ",cc" 'evilnc-copy-and-comment-lines)
        (define-key evil-normal-state-map ",cp" 'evilnc-comment-or-uncomment-paragraphs)
        (define-key evil-normal-state-map ",cr" 'comment-or-uncomment-region)
-       (define-key evil-normal-state-map ",cv" 'evilnc-toggle-invert-comment-line-by-line))))
+       (define-key evil-normal-state-map ",cv" 'evilnc-toggle-invert-comment-line-by-line)))
+
+  ;; Install operator for evil text objects
+  (eval-after-load 'evil-nerd-commenter-operator
+    '(progn
+       (define-key evil-normal-state-map ",," 'evilnc-comment-operator)
+       (define-key evil-visual-state-map ",," 'evilnc-comment-operator)))
+  )
 
 ;; Attempt to define the operator on first load.
 ;; Will only work if evil has been loaded

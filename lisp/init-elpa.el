@@ -1,21 +1,8 @@
-;;------------------------------------------------------------------------------
-;; Find and load the correct package.el
-;;------------------------------------------------------------------------------
-
-;; When switching between Emacs 23 and 24, we always use the bundled package.el in Emacs 24
-(let ((package-el-site-lisp-dir (expand-file-name "~/.emacs.d/site-lisp/package")))
-  (when (and (file-directory-p package-el-site-lisp-dir)
-             (> emacs-major-version 23))
-    (message "Removing local package.el from load-path to avoid shadowing bundled version")
-    (setq load-path (remove package-el-site-lisp-dir load-path))))
-
 (require 'package)
-
 
 ;;------------------------------------------------------------------------------
 ;; Patch up annoying package.el quirks
 ;;------------------------------------------------------------------------------
-
 (defadvice package-generate-autoloads (after close-autoloads (name pkg-dir) activate)
   "Stop package.el from leaving open autoload files lying around."
   (let ((path (expand-file-name (concat
@@ -29,7 +16,6 @@
 ;;------------------------------------------------------------------------------
 ;; Add support to package.el for pre-filtering available packages
 ;;------------------------------------------------------------------------------
-
 (defvar package-filter-function nil
   "Optional predicate function used to internally filter packages used by package.el.
 
@@ -49,10 +35,10 @@ ARCHIVE is the string name of the package archive.")
             (cdr package))
          archive))
     ad-do-it))
+
 ;;------------------------------------------------------------------------------
 ;; On-demand installation of packages
 ;;------------------------------------------------------------------------------
-
 (defun require-package (package &optional min-version no-refresh)
   "Ask elpa to install given PACKAGE."
   (if (package-installed-p package min-version)
@@ -72,9 +58,6 @@ ARCHIVE is the string name of the package archive.")
 ;; Lock org-mode temporarily:
 ;; (add-to-list 'package-archives '("org" . "http://orgmode.org/elpa/"))
 
-
-;; well, melpa does not bother supporting emacs23 any more, but cl-lib is still required
-;; TODO: in half a year, I will remove gnu elpa because emacs 24.3 is the minimum version
 (setq package-archives '(("melpa" . "http://melpa.org/packages/")
                          ("melpa-stable" . "http://stable.melpa.org/packages/")
                          ("marmalade" . "http://marmalade-repo.org/packages/")
@@ -86,9 +69,6 @@ ARCHIVE is the string name of the package archive.")
 ;; from https://github.com/redguardtoo/myelpa/archive/master.zip
 ;; and extract its content into ~/myelpa/
 ;; (setq package-archives '(("myelpa" . "~/projs/myelpa")))
-
-;; this is just hack to work around *emacs23* issues
-(if (not *emacs24*) (add-to-list 'package-archives '("localelpa" . "~/.emacs.d/localelpa")))
 
 ;; Or Un-comment below line if you prefer installing package from https://github.com/redguardtoo/myelpa/ directly
 ;; (setq package-archives '(("myelpa" . "https://raw.github.com/redguardtoo/myelpa/master/")))
@@ -102,7 +82,9 @@ ARCHIVE is the string name of the package archive.")
     color-theme
     wgrep
     robe
+    groovy-mode
     inf-ruby
+    simple-httpd
     dsvn
     move-text
     findr
@@ -113,7 +95,6 @@ ARCHIVE is the string name of the package archive.")
     db
     creole
     web
-    elnode
     sass-mode
     idomenu
     pointback
@@ -121,13 +102,10 @@ ARCHIVE is the string name of the package archive.")
     regex-tool
     csharp-mode
     switch-window
-    sr-speedbar
     quack
-    iedit
     legalese
     htmlize
     scratch
-    mic-paren
     session
     crontab-mode
     bookmark+
@@ -142,18 +120,16 @@ ARCHIVE is the string name of the package archive.")
     auto-compile
     packed
     gitconfig-mode
-    project-local-variables
-    org-fstree
     textile-mode
     w3m
     fakir
     erlang
-    fancy-narrow
     company-c-headers
     company-anaconda
     anaconda-mode
     ;; make all the color theme packages available
     afternoon-theme
+    define-word
     ahungry-theme
     alect-themes
     ample-theme
@@ -179,6 +155,7 @@ ARCHIVE is the string name of the package archive.")
     color-theme-solarized
     colorsarenice-theme
     cyberpunk-theme
+    expand-region
     dakrone-theme
     darcula-theme
     dark-krystal-theme
@@ -222,47 +199,43 @@ ARCHIVE is the string name of the package archive.")
 
 (package-initialize)
 
-(require-package 'cl-lib '(0 0 5) nil)
-(require-package 'kv '(0 0 19) nil)
-(require-package 'dash '(2 5 0) nil)
+(require-package 'kv)
+(require-package 'dash)
 ; color-theme 6.6.1 in elpa is buggy
 (require-package 'color-theme)
 (require-package 'auto-compile)
-(require-package 'ace-jump-mode)
-(require-package 'expand-region '(0 8 0) nil)
+(require-package 'avy)
+(require-package 'expand-region) ;; use latest version if possible
 (require-package 'fringe-helper)
-(require-package 'haskell-mode '(13 7 0) nil)
-(require-package 'magit '(1 2 0) nil)
-(require-package 'git-commit-mode)
+(require-package 'haskell-mode)
 (require-package 'gitignore-mode)
 (require-package 'gitconfig-mode)
+(require-package 'yagist)
 (require-package 'wgrep)
 (require-package 'lua-mode)
-(require-package 'project-local-variables)
 (require-package 'robe)
-(require-package 'inf-ruby '(2 3 0) nil)
+(require-package 'inf-ruby)
 (require-package 'yaml-mode)
 (require-package 'paredit)
-(require-package 'erlang '(20120612 0 0) nil)
+(require-package 'erlang)
 (require-package 'findr)
-(if *emacs24* (require-package 'jump '(2 3 0) nil))
+(require-package 'jump)
 (require-package 'writeroom-mode)
 (require-package 'haml-mode)
 (require-package 'sass-mode)
 (require-package 'scss-mode)
 (require-package 'markdown-mode)
 (require-package 'dired+)
-(require-package 'maxframe)
-(require-package 'org-fstree)
+(require-package 'link)
+(require-package 'connection)
+(require-package 'dictionary) ; dictionary requires 'link and 'connection
 (require-package 'htmlize)
 (require-package 'diminish)
 (require-package 'scratch)
-(require-package 'mic-paren)
 (require-package 'rainbow-delimiters)
 (require-package 'textile-mode)
-(when *emacs24*
-  (require-package 'coffee-mode)
-  (require-package 'flymake-coffee))
+(require-package 'coffee-mode)
+(require-package 'flymake-coffee)
 (require-package 'crontab-mode)
 (require-package 'dsvn)
 (require-package 'git-timemachine)
@@ -283,6 +256,7 @@ ARCHIVE is the string name of the package archive.")
 ;; I don't use multiple-cursors, but js2-refactor requires it
 (require-package 'multiple-cursors)
 (require-package 'rinari)
+(require-package 'groovy-mode)
 (require-package 'ruby-compilation)
 (require-package 'csharp-mode)
 (require-package 'emmet-mode)
@@ -291,45 +265,40 @@ ARCHIVE is the string name of the package archive.")
 (require-package 'unfill)
 (require-package 'w3m)
 (require-package 'idomenu)
-(if *emacs24* (require-package 'ggtags))
+(require-package 'ggtags)
 (require-package 'buffer-move)
 (require-package 'switch-window)
-(require-package 'cpputils-cmake '(0 4 22) nil)
+(require-package 'cmake-mode)
+(require-package 'cpputils-cmake)
 (require-package 'flyspell-lazy)
-(require-package 'bbdb '(20130421 1145 0) nil)
-(require-package 'iedit)
-(require-package 'pomodoro '(20130114 1543 0) nil)
+(require-package 'bbdb)
+(require-package 'pomodoro)
 (require-package 'flymake-lua)
 (require-package 'dropdown-list)
-(if *emacs24* (require-package 'yasnippet '(0 9 0 1) nil))
 ;; rvm-open-gem to get gem's code
 (require-package 'rvm)
 ;; C-x r l to list bookmarks
 (require-package 'bookmark+)
 (require-package 'multi-term)
 (require-package 'json-mode)
-(if (and (>= emacs-major-version 24) (>= emacs-minor-version 1))
-    (require-package 'js2-mode '(20140114 0 0) nil))
+(require-package 'js2-mode)
 (require-package 'tagedit)
-(require-package 'fancy-narrow)
-(require-package 'sr-speedbar)
-;; company-mode drop emacs 23 support
-(when (>= emacs-major-version 24)
-  (require-package 'company '(0 8 5) nil)
-  (require-package 'company-c-headers))
+(require-package 'yasnippet)
+(require-package 'company)
+(require-package 'company-c-headers)
 (require-package 'legalese)
 (require-package 'string-edit)
 (require-package 'dired-details)
+(require-package 'guide-key)
 (require-package 'ag)
 (require-package 'fakir)
-(require-package 'f)
-(require-package 'elnode) ;; elnode dependent on f
-(when *emacs24*
-  (require-package 'git-gutter '(0 71) nil)
-  (require-package 'flx-ido)
-  (require-package 'projectile)
-  (require-package 'anaconda-mode)
-  (require-package 'company-anaconda))
+(require-package 'simple-httpd)
+(require-package 'git-gutter)
+(require-package 'flx-ido)
+(require-package 'neotree)
+(require-package 'define-word)
+(require-package 'anaconda-mode)
+(require-package 'company-anaconda)
 
 (require-package 'quack) ;; for scheme
 
