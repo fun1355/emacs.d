@@ -1,9 +1,29 @@
+;; {{ swiper&ivy-mode
+(autoload 'ivy-recentf "ivy" "" t)
+(autoload 'ivy-read "ivy")
+(autoload 'swiper "swiper" "" t)
+
+(defun swiper-the-thing ()
+  (interactive)
+  (swiper (if (region-active-p)
+              (buffer-substring-no-properties (region-beginning) (region-end))
+            (thing-at-point 'symbol))))
+;; }}
+
+;; {{ support MY packages which are not included in melpa
+(autoload 'wxhelp-browse-class-or-api "wxwidgets-help" "" t)
+(autoload 'issue-tracker-increment-issue-id-under-cursor "issue-tracker" "" t)
+(autoload 'issue-tracker-insert-issue-list "issue-tracker" "" t)
+(autoload 'elpamr-create-mirror-for-installed "elpa-mirror" "" t)
+(autoload 'org2nikola-export-subtree "org2nikola" "" t)
+(autoload 'org2nikola-rerender-published-posts "org2nikola" "" t)
+(setq org2nikola-use-verbose-metadata t) ; for nikola 7.7+
+;; }}
+
 (define-key global-map (kbd "RET") 'newline-and-indent)
 
 ;; M-x without meta
 (global-set-key (kbd "C-x C-m") 'execute-extended-command)
-(global-set-key (kbd "C-.") 'set-mark-command)
-(global-set-key (kbd "C-x C-.") 'pop-global-mark)
 
 ;; C#
 (add-to-list 'auto-mode-alist '("\\.cs$" . csharp-mode))
@@ -31,7 +51,7 @@
               set-mark-command-repeat-pop t
               tooltip-delay 1.5
               ;; void problems with crontabs, etc.
-              ;; require-final-newline t ; bad idea, could accidently edit others' code
+              ;; require-final-newline t ; bad idea, could accidentally edit others' code
               truncate-lines nil
               truncate-partial-width-windows nil
               ;; visible-bell has some issue
@@ -44,10 +64,10 @@
 
 
 ;; {{ find-file-in-project (ffip)
-(autoload 'ivy-read "ivy")
 (autoload 'find-file-in-project "find-file-in-project" "" t)
 (autoload 'find-file-in-project-by-selected "find-file-in-project" "" t)
 (autoload 'ffip-get-project-root-directory "find-file-in-project" "" t)
+(setq ffip-match-path-instead-of-filename t)
 
 (defun neotree-project-dir ()
   "Open NeoTree using the git root."
@@ -60,14 +80,30 @@
           (neotree-find file-name))
       (message "Could not find git project root."))))
 
-(defun my-vc-git-grep ()
+(defvar my-grep-extra-opts
+  "--exclude-dir=.git --exclude-dir=.bzr --exclude-dir=.svn"
+  "Extra grep options passed to `my-grep'")
+
+(defun my-grep ()
+  "Grep file at project root directory or current directory"
   (interactive)
-  (let ((re (if (region-active-p)
-                (buffer-substring-no-properties (region-beginning) (region-end))
-              (read-string "Grep pattern: ")))
-        (root (ffip-get-project-root-directory)))
-    (if root (vc-git-grep re "*" root))
-    ))
+  (let ((keyword (if (region-active-p)
+                     (buffer-substring-no-properties (region-beginning) (region-end))
+                   (read-string "Enter grep pattern: ")))
+        cmd collection val 1st root)
+
+    (let ((default-directory (setq root (or (ffip-get-project-root-directory) default-directory))))
+      (setq cmd (format "%s -rsn %s \"%s\""
+                        grep-program my-grep-extra-opts keyword))
+      (when (and (setq collection (split-string
+                                   (shell-command-to-string cmd)
+                                   "\n"
+                                   t))
+                 (setq val (ivy-read (format "matching \"%s\" at %s:" keyword root) collection))))
+      (setq lst (split-string val ":"))
+      (find-file (car lst))
+      (goto-char (point-min))
+      (forward-line (1- (string-to-number (cadr lst)))))))
 ;; }}
 
 ;; {{ groovy-mode
@@ -92,14 +128,12 @@
 ;; {{ gradle
 (defun my-run-gradle-in-shell (cmd)
   (interactive "sEnter a string:")
-  (let ((old-dir default-directory)
-        (root-dir (locate-dominating-file default-directory
+  (let ((root-dir (locate-dominating-file default-directory
                                           "build.gradle")))
-    (message "root-dir=%s cmd=%s" root-dir cmd)
-    (when root-dir
-      (cd root-dir)
-      (shell-command (concat "gradle " cmd "&"))
-      (cd old-dir))))
+    (if root-dir
+      (let ((default-directory root-dir))
+        (shell-command (concat "gradle " cmd "&"))))
+    ))
 ;; }}
 
 ;; {{ crontab
@@ -126,6 +160,12 @@
 
 ;; }}
 
+;; {{ bookmark
+;; use my own bmk if it exists
+(if (file-exists-p (file-truename "~/.emacs.bmk"))
+    (setq bookmark-file (file-truename "~/.emacs.bmk")))
+;; }}
+
 (defun insert-lorem ()
   (interactive)
   (insert "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque sem mauris, aliquam vel interdum in, faucibus non libero. Asunt in anim uis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in anim id est laborum. Allamco laboris nisi ut aliquip ex ea commodo consequat."))
@@ -141,15 +181,6 @@
 (defun lookup-doc-in-man ()
   (interactive)
   (man (concat "-k " (thing-at-point 'symbol))))
-
-;; {{ swiper
-(autoload 'swiper "swiper" "" t)
-(defun swiper-the-thing ()
-  (interactive)
-  (swiper (if (region-active-p)
-              (buffer-substring-no-properties (region-beginning) (region-end))
-            (thing-at-point 'symbol))))
-;; }}
 
 ;; @see http://blog.binchen.org/posts/effective-code-navigation-for-web-development.html
 ;; don't let the cursor go into minibuffer prompt
@@ -192,17 +223,6 @@
 (guide-key-mode 1)  ; Enable guide-key-mode
 (setq guide-key/recursive-key-sequence-flag t)
 (setq guide-key/idle-delay 0.5)
-;; }}
-
-;; {{expand-region.el
-;; if emacs-nox, use C-@, else, use C-2;
-(if window-system
-  (progn
-    (define-key global-map (kbd "C-2") 'er/expand-region)
-    (define-key global-map (kbd "C-M-2") 'er/contract-region)
-    )
-  (define-key global-map (kbd "C-@") 'er/expand-region)
-  (define-key global-map (kbd "C-M-@") 'er/contract-region))
 ;; }}
 
 (defun generic-prog-mode-hook-setup ()
@@ -302,10 +322,6 @@ buffer is not visiting a file."
 ;; edit confluence wiki
 (autoload 'confluence-edit-mode "confluence-edit" "enable confluence-edit-mode" t)
 (add-to-list 'auto-mode-alist '("\\.wiki\\'" . confluence-edit-mode))
-
-;; {{string-edit.el
-(autoload 'string-edit-at-point "string-edit" "enable string-edit-mode" t)
-;; }}
 
 (defun erase-specific-buffer (num buf-name)
   (let ((message-buffer (get-buffer buf-name))
@@ -413,12 +429,18 @@ buffer is not visiting a file."
 ;; {{ popup functions
 (autoload 'which-function "which-func")
 (autoload 'popup-tip "popup")
+
+(defun my-which-function ()
+  ;; clean the imenu cache
+  ;; @see http://stackoverflow.com/questions/13426564/how-to-force-a-rescan-in-imenu-by-a-function
+  (setq imenu--index-alist nil)
+  (which-function))
+
 (defun popup-which-function ()
   (interactive)
-  (let ((msg (which-function)))
+  (let ((msg (my-which-function)))
     (popup-tip msg)
-    (copy-yank-str msg)
-    ))
+    (copy-yank-str msg)))
 ;; }}
 
 ;; {{ music
@@ -452,8 +474,9 @@ buffer is not visiting a file."
     ad-do-it
     (setenv "GPG_AGENT_INFO" agent)))
 
-;; http://tapoueh.org/emacs/switch-window.html
-(global-set-key (kbd "C-x o") 'switch-window)
+;; https://github.com/abo-abo/ace-window
+;; `M-x ace-window ENTER m` to swap window
+(global-set-key (kbd "C-x o") 'ace-window)
 
 ;; {{ move focus between sub-windows
 (require 'window-numbering)
@@ -464,33 +487,53 @@ buffer is not visiting a file."
 ;; {{ avy, jump between texts, like easymotion in vim
 ;; @see http://emacsredux.com/blog/2015/07/19/ace-jump-mode-is-dead-long-live-avy/ for more tips
 ;; emacs key binding, copied from avy website
-(global-set-key (kbd "C-:") 'avy-goto-char)
 ;; evil, my favorite
 (eval-after-load "evil"
   '(progn
-     (define-key evil-normal-state-map (kbd "gp") #'avy-goto-subword-1)
-     (define-key evil-normal-state-map (kbd "gP") #'avy-goto-line)
-     ;; press "dp" to delete to the word
-     (define-key evil-motion-state-map (kbd "p") #'avy-goto-subword-1)
-     ;; press "dl" to delete to the lin;e
-     (define-key evil-motion-state-map (kbd "P") #'avy-goto-line)
-     (define-key evil-normal-state-map (kbd "SPC") 'avy-goto-subword-1)))
+     ;; press "d " to delete to the word
+     (define-key evil-motion-state-map (kbd ";") #'avy-goto-subword-1)
+     (define-key evil-normal-state-map (kbd ";") 'avy-goto-subword-1)))
 ;; dired
 (eval-after-load "dired"
   '(progn
-     (define-key dired-mode-map (kbd "SPC") 'avy-goto-subword-1)))
+     (define-key dired-mode-map (kbd ";") 'avy-goto-subword-1)))
+;; }}
+
+;; ANSI-escape coloring in compilation-mode
+;; {{ http://stackoverflow.com/questions/13397737/ansi-coloring-in-compilation-mode
+(ignore-errors
+  (require 'ansi-color)
+  (defun my-colorize-compilation-buffer ()
+    (when (eq major-mode 'compilation-mode)
+      (ansi-color-apply-on-region compilation-filter-start (point-max))))
+  (add-hook 'compilation-filter-hook 'my-colorize-compilation-buffer))
 ;; }}
 
 ;; {{ @see http://emacs.stackexchange.com/questions/14129/which-keyboard-shortcut-to-use-for-navigating-out-of-a-string
 (defun font-face-is-similar (f1 f2)
   (let (rlt)
     ;; (message "f1=%s f2=%s" f1 f2)
+    ;; in emacs-lisp-mode, the '^' from "^abde" has list of faces:
+    ;;   (font-lock-negation-char-face font-lock-string-face)
+    (if (listp f1) (setq f1 (nth 1 f1)))
+    (if (listp f2) (setq f2 (nth 1 f2)))
+
     (if (eq f1 f2) (setq rlt t)
       ;; C++ comment has different font face for limit and content
       ;; f1 or f2 could be a function object because of rainbow mode
       (if (and (string-match "-comment-" (format "%s" f1)) (string-match "-comment-" (format "%s" f2)))
           (setq rlt t)))
     rlt))
+
+;; {{ tramp setup
+;; @see http://www.quora.com/Whats-the-best-way-to-edit-remote-files-from-Emacs
+(setq tramp-default-method "ssh")
+(setq tramp-auto-save-directory "~/.backups/tramp/")
+(setq tramp-chunksize 8192)
+;; @see https://github.com/syl20bnr/spacemacs/issues/1921
+(setq tramp-ssh-controlmaster-options
+      "-o ControlMaster=auto -o ControlPath='tramp.%%C' -o ControlPersist=no")
+;; }}
 
 (defun goto-edge-by-comparing-font-face (&optional step)
 "Goto either the begin or end of string/comment/whatever.

@@ -3,7 +3,7 @@
 ;; Author: Frank Fischer <frank fischer at mathematik.tu-chemnitz.de>
 ;; Maintainer: Vegard Øye <vegard_oye at hotmail.com>
 
-;; Version: 1.0.9
+;; Version: 1.2.7
 
 ;;
 ;; This file is NOT part of GNU Emacs.
@@ -56,16 +56,33 @@
     (command #'evil-ex-parse-command)
     (binding
      "[~&*@<>=:]+\\|[[:alpha:]-]+\\|!")
+    (emacs-binding
+     "[[:alpha:]-][[:alnum:][:punct:]-]+")
     (bang
      (\? (! space) "!" #'$1))
     (argument
      ((\? space) (\? "\\(?:.\\|\n\\)+") #'$2))
     (range
      ("%" #'(evil-ex-full-range))
-     (line (\? "[,;]" line #'$2) #'evil-ex-range)
+     (line ";" line #'(let ((tmp1 $1))
+                        (save-excursion
+                          (goto-line tmp1)
+                          (evil-ex-range tmp1 $3))))
+     (line "," line #'(evil-ex-range $1 $3))
+     (line #'(evil-ex-range $1 nil))
      ("`" "[-a-zA-Z_<>']" ",`" "[-a-zA-Z_<>']"
       #'(evil-ex-char-marker-range $2 $4)))
     (line
+     (base (\? offset) search (\? offset)
+           #'(let ((tmp (evil-ex-line $1 $2)))
+               (save-excursion
+                 (goto-line tmp)
+                 (evil-ex-line $3 $4))))
+     ((\? base) offset search (\? offset)
+      #'(let ((tmp (evil-ex-line $1 $2)))
+          (save-excursion
+            (goto-line tmp)
+            (evil-ex-line $3 $4))))
      (base (\? offset) #'evil-ex-line)
      ((\? base) offset #'evil-ex-line))
     (base
@@ -169,7 +186,7 @@ is appended to the line."
              ":"
              (or initial-input
                  (and evil-ex-previous-command
-                      (format "(default: %s) " evil-ex-previous-command)))
+                      (propertize evil-ex-previous-command 'face 'shadow)))
              evil-ex-completion-map
              nil
              'evil-ex-history
@@ -199,10 +216,16 @@ Otherwise behaves like `delete-backward-char'."
        #'abort-recursive-edit
      #'delete-backward-char)))
 
+(defun evil-ex-abort ()
+  "Cancel ex state when another buffer is selected."
+  (unless (minibufferp)
+    (abort-recursive-edit)))
+
 (defun evil-ex-setup ()
   "Initialize Ex minibuffer.
 This function registers several hooks that are used for the
 interactive actions during ex state."
+  (add-hook 'post-command-hook #'evil-ex-abort)
   (add-hook 'after-change-functions #'evil-ex-update nil t)
   (add-hook 'minibuffer-exit-hook #'evil-ex-teardown)
   (when evil-ex-previous-command
@@ -218,6 +241,7 @@ interactive actions during ex state."
 (defun evil-ex-teardown ()
   "Deinitialize Ex minibuffer.
 Clean up everything set up by `evil-ex-setup'."
+  (remove-hook 'post-command-hook #'evil-ex-abort)
   (remove-hook 'minibuffer-exit-hook #'evil-ex-teardown)
   (remove-hook 'after-change-functions #'evil-ex-update t)
   (when evil-ex-argument-handler
@@ -232,7 +256,8 @@ Clean up everything set up by `evil-ex-setup'."
 When ex starts, the previous command is shown enclosed in
 parenthesis. This function removes this text when the first key
 is pressed."
-  (delete-minibuffer-contents)
+  (unless (eq this-command 'exit-minibuffer)
+    (delete-minibuffer-contents))
   (remove-hook 'pre-command-hook #'evil-ex-remove-default))
 (put 'evil-ex-remove-default 'permanent-local-hook t)
 
@@ -270,7 +295,7 @@ in case of incomplete or unknown commands."
                         count)
                        ((numberp count)
                         (evil-ex-range count count)))
-                bang (and (string-match ".!$" cmd) t))))
+                bang (and (save-match-data (string-match ".!$" cmd)) t))))
       (setq evil-ex-tree tree
             evil-ex-expression expr
             evil-ex-range range
@@ -452,12 +477,13 @@ in case of incomplete or unknown commands."
 
 (defun evil-ex-define-cmd (cmd function)
   "Binds the function FUNCTION to the command CMD."
-  (if (string-match "^[^][]*\\(\\[\\(.*\\)\\]\\)[^][]*$" cmd)
-      (let ((abbrev (replace-match "" nil t cmd 1))
-            (full (replace-match "\\2" nil nil cmd 1)))
-        (evil-add-to-alist 'evil-ex-commands full function)
-        (evil-add-to-alist 'evil-ex-commands abbrev full))
-    (evil-add-to-alist 'evil-ex-commands cmd function)))
+  (save-match-data
+    (if (string-match "^[^][]*\\(\\[\\(.*\\)\\]\\)[^][]*$" cmd)
+        (let ((abbrev (replace-match "" nil t cmd 1))
+              (full (replace-match "\\2" nil nil cmd 1)))
+          (evil-add-to-alist 'evil-ex-commands full function)
+          (evil-add-to-alist 'evil-ex-commands abbrev full))
+      (evil-add-to-alist 'evil-ex-commands cmd function))))
 
 (defun evil-ex-make-argument-handler (runner completer)
   (list runner completer))
@@ -607,19 +633,20 @@ works accordingly."
 
 (defun evil-ex-binding (command &optional noerror)
   "Returns the final binding of COMMAND."
-  (let ((binding command))
-    (when binding
-      (string-match "^\\(.+?\\)\\!?$" binding)
-      (setq binding (match-string 1 binding))
-      (while (progn
-               (setq binding (cdr (assoc binding evil-ex-commands)))
-               (stringp binding)))
-      (unless binding
-        (setq binding (intern command)))
-      (if (commandp binding)
-          binding
-        (unless noerror
-          (user-error "Unknown command: `%s'" command))))))
+  (save-match-data
+    (let ((binding command))
+      (when binding
+        (string-match "^\\(.+?\\)\\!?$" binding)
+        (setq binding (match-string 1 binding))
+        (while (progn
+                 (setq binding (cdr (assoc binding evil-ex-commands)))
+                 (stringp binding)))
+        (unless binding
+          (setq binding (intern command)))
+        (if (commandp binding)
+            binding
+          (unless noerror
+            (user-error "Unknown command: `%s'" command)))))))
 
 (defun evil-ex-completed-binding (command &optional noerror)
   "Returns the final binding of the completion of COMMAND."
@@ -681,7 +708,7 @@ This function interprets special file names like # and %."
   "Execute the given command COMMAND."
   (let* ((count (when (numberp range) range))
          (range (when (evil-range-p range) range))
-         (bang (and (string-match ".!$" command) t))
+         (bang (and (save-match-data (string-match ".!$" command)) t))
          (evil-ex-point (point))
          (evil-ex-range
           (or range (and count (evil-ex-range count count))))
@@ -774,11 +801,12 @@ Signal an error if MARKER is in a different buffer."
   "Search forward for PATTERN.
 Returns the line number of the match."
   (condition-case err
-      (save-excursion
-        (set-text-properties 0 (length pattern) nil pattern)
-        (evil-move-end-of-line)
-        (and (re-search-forward pattern nil t)
-             (line-number-at-pos (1- (match-end 0)))))
+      (save-match-data
+        (save-excursion
+          (set-text-properties 0 (length pattern) nil pattern)
+          (evil-move-end-of-line)
+          (and (re-search-forward pattern nil t)
+               (line-number-at-pos (1- (match-end 0))))))
     (invalid-regexp
      (evil-ex-echo (cadr err))
      nil)))
@@ -787,11 +815,12 @@ Returns the line number of the match."
   "Search backward for PATTERN.
 Returns the line number of the match."
   (condition-case err
-      (save-excursion
-        (set-text-properties 0 (length pattern) nil pattern)
-        (evil-move-beginning-of-line)
-        (and (re-search-backward pattern nil t)
-             (line-number-at-pos (match-beginning 0))))
+      (save-match-data
+        (save-excursion
+          (set-text-properties 0 (length pattern) nil pattern)
+          (evil-move-beginning-of-line)
+          (and (re-search-backward pattern nil t)
+               (line-number-at-pos (match-beginning 0)))))
     (invalid-regexp
      (evil-ex-echo (cadr err))
      nil)))
@@ -829,6 +858,20 @@ START is the start symbol, which defaults to `expression'."
     (when result
       (setq command (car-safe result)
             string (cdr-safe result))
+      ;; check whether the command is followed by a slash and the
+      ;; part before the slash is not a known ex binding
+      ;; (maybe we should check for other characters, too? But only
+      ;; the slash is used commonly in Emacs functions)
+      (when (and (> (length string) 0)
+                 (= (aref string 0) ?/)
+                 (not (evil-ex-binding command t)))
+        ;; if this is the case, assume the slash and all following
+        ;; symbol characters form an (Emacs-)command
+        (setq result (evil-parser (concat command string)
+                                  'emacs-binding
+                                  evil-ex-grammar)
+              command (car-safe result)
+              string (cdr-safe result)))
       ;; parse a following "!" as bang only if
       ;; the command has the property :ex-bang t
       (when (evil-ex-command-force-p command)
@@ -1076,8 +1119,9 @@ The following symbols have reserved meanings within a grammar:
                 #'(lambda (obj)
                     (when (symbolp obj)
                       (let ((str (symbol-name obj)))
-                        (when (string-match "\\$\\([0-9]+\\)" str)
-                          (string-to-number (match-string 1 str)))))))
+                        (save-match-data
+                          (when (string-match "\\$\\([0-9]+\\)" str)
+                            (string-to-number (match-string 1 str))))))))
                ;; traverse a tree for dollar expressions
                (dval nil)
                (dval
@@ -1125,7 +1169,7 @@ The following symbols have reserved meanings within a grammar:
       (if (not greedy) pair
         (if (null (cdr pair)) pair
           ;; ignore trailing whitespace
-          (when (string-match "^[ \f\t\n\r\v]*$" (cdr pair))
+          (when (save-match-data (string-match "^[ \f\t\n\r\v]*$" (cdr pair)))
             (unless syntax (setcdr pair nil))
             pair))))))
 

@@ -3,7 +3,7 @@
 ;; Author: Vegard Øye <vegard_oye at hotmail.com>
 ;; Maintainer: Vegard Øye <vegard_oye at hotmail.com>
 
-;; Version: 1.0.9
+;; Version: 1.2.7
 
 ;;
 ;; This file is NOT part of GNU Emacs.
@@ -2274,19 +2274,19 @@ Below some empty line")))
       (evil-test-buffer
         "[l]ine 1\nline 2\nline 3\n"
         ("Vj>")
-        "[ ]   line 1\n    line 2\nline 3\n"))
+        "    [l]ine 1\n    line 2\nline 3\n"))
     (ert-info ("Shift char selection on whole line")
       (evil-test-buffer
         "[l]ine 1\nline 2\nline 3\n"
         ("v$>")
-        "[ ]   line 1\nline 2\nline 3\n"))
+        "    [l]ine 1\nline 2\nline 3\n"))
     (ert-info ("Shift visual with count")
       (evil-test-buffer
         "[l]ine 1\nline 2\nline 3\n"
         ("Vj3>")
-        "[ ]           line 1\n            line 2\nline 3\n"
+        "            [l]ine 1\n            line 2\nline 3\n"
         ("Vj2<")
-        "[ ]   line 1\n    line 2\nline 3\n"))
+        "    [l]ine 1\n    line 2\nline 3\n"))
     (ert-info ("Shift in insert state")
       (evil-test-buffer
         "line 1\nl[i]ne 2\nline 3\n"
@@ -3139,6 +3139,14 @@ Below some empty line")))
     ";; [T]his buffer is for notes."
     ("d0")
     "[T]his buffer is for notes."))
+
+(ert-deftest evil-test-forward-not-word ()
+  "Test `evil-forward-not-thing'"
+  :tags '(evil motion)
+  (evil-test-buffer
+    "[ ]    aa,,"
+    (evil-forward-not-thing 'evil-word)
+    "     [a]a,,"))
 
 ;; TODO: test Visual motions and window motions
 (ert-deftest evil-test-forward-word-begin ()
@@ -5244,7 +5252,13 @@ Below some empty line."))
     (evil-test-buffer
       "x[x]xx ) yyyyy () zzzz"
       (should-error (execute-kbd-macro "%"))
-      "x[x]xx ) yyyyy () zzzz")))
+      "x[x]xx ) yyyyy () zzzz"))
+
+  (ert-info ("At the end of the line")
+    (evil-test-buffer
+      "[p]ublic void foo(String bar) {\n   blabla;\n}\n"
+      ("v$%")
+      "public void foo(String bar) {\n   blabla;\n[}]\n")))
 
 (ert-deftest evil-test-unmatched-paren ()
   "Test `evil-previous-open-paren' and `evil-next-close-paren'"
@@ -5351,7 +5365,12 @@ Below some empty line."))
       (evil-test-buffer
         ";; This<[ ]buffer> is for notes."
         ("aw")
-        ";;<[ ]This buffer> is for notes."))))
+        ";;<[ ]This buffer> is for notes.")))
+  (ert-info ("select first visual word")
+    (evil-test-buffer
+      "([a])"
+      ("viw")
+      "(<[a]>)")))
 
 (ert-deftest evil-test-word-objects-cjk ()
   "Test `evil-inner-word' and `evil-a-word' on CJK words"
@@ -5937,7 +5956,7 @@ Below some empty line."))
 (ert-deftest evil-test-paragraph-objects ()
   "Test `evil-inner-paragraph' and `evil-a-paragraph'"
   :tags '(evil text-object)
-  (ert-info ("Select a paragraph")
+  (ert-info ("Select a paragraph with point at beginning")
     (evil-test-buffer
       "[;]; This buffer is for notes,
 ;; and for Lisp evaluation.
@@ -5949,7 +5968,8 @@ Below some empty line."))
 ;; and for Lisp evaluation.
 \[]\n>\
 ;; This buffer is for notes,
-;; and for Lisp evaluation.")
+;; and for Lisp evaluation."))
+  (ert-info ("Select a paragraph with point at last line")
     (evil-test-buffer
       ";; This buffer is for notes,
 \[;]; and for Lisp evaluation.
@@ -5961,7 +5981,8 @@ Below some empty line."))
 ;; and for Lisp evaluation.
 \[]\n>\
 ;; This buffer is for notes,
-;; and for Lisp evaluation.")
+;; and for Lisp evaluation."))
+  (ert-info ("Select a paragraph with point after paragraph")
     (evil-test-buffer
       ";; This buffer is for notes,
 ;; and for Lisp evaluation.
@@ -6056,7 +6077,13 @@ Below some empty line."))
       "Th[i]s is \"a test\". For \"quote\" objects."
       (emacs-lisp-mode)
       ("da\"")
-      "This is[.] For \"quote\" objects.")))
+      "This is[.] For \"quote\" objects."))
+  (ert-info ("Operator on empty quotes")
+    (evil-test-buffer
+      "This is [a]n \"\" empty quote"
+      (emacs-lisp-mode)
+      ("ci\"XXX" [escape])
+      "This is an \"XX[X]\" empty quote")))
 
 (ert-deftest evil-test-paren-objects ()
   "Test `evil-inner-paren', etc."
@@ -6083,6 +6110,40 @@ Below some empty line."))
         (emacs-lisp-mode)
         ("vi(")
         "((<aa[a]>))")))
+  (ert-info ("Select double inner parentheses")
+    (evil-test-buffer
+      "([(]word))"
+      ("dib")
+      "(())")
+    (evil-test-buffer
+      "[(](word))"
+      ("dib")
+      "()")
+    (evil-test-buffer
+      "((word[)])"
+      ("dib")
+      "(())")
+    (evil-test-buffer
+      "((word)[)]"
+      ("dib")
+      "()"))
+  (ert-info ("Select double outer parentheses")
+    (evil-test-buffer
+      "a([(]word))b"
+      ("dab")
+      "a()b")
+    (evil-test-buffer
+      "a[(](word))b"
+      ("dab")
+      "ab")
+    (evil-test-buffer
+      "a((word[)])b"
+      ("dab")
+      "a()b")
+    (evil-test-buffer
+      "a((word)[)]b"
+      ("dab")
+      "ab"))
   (ert-info ("Select parentheses inside strings")
     (evil-test-buffer
       "(aaa \"b(b[b]b)\" aa)"
@@ -6418,7 +6479,7 @@ if no previous selection")
                  '(evil-ex-range
                    (evil-ex-line (string-to-number "5") nil)
                    (evil-ex-line (string-to-number "27") nil))))
-  (should (equal (evil-ex-parse "5;$" nil 'range)
+  (should (equal (evil-ex-parse "5,$" nil 'range)
                  '(evil-ex-range
                    (evil-ex-line (string-to-number "5") nil)
                    (evil-ex-line (evil-ex-last-line) nil))))
@@ -6438,7 +6499,7 @@ if no previous selection")
                    (evil-ex-line (string-to-number "5") nil)
                    (evil-ex-line
                     nil (+ (evil-ex-signed-number (intern "-") nil))))))
-  (should (equal (evil-ex-parse "5;4+2-7-3+10-" nil 'range)
+  (should (equal (evil-ex-parse "5,4+2-7-3+10-" nil 'range)
                  '(evil-ex-range
                    (evil-ex-line (string-to-number "5") nil)
                    (evil-ex-line
@@ -6452,7 +6513,7 @@ if no previous selection")
                        (evil-ex-signed-number
                         (intern "+") (string-to-number "10"))
                        (evil-ex-signed-number (intern "-") nil))))))
-  (should (equal (evil-ex-parse ".-2;4+2-7-3+10-" nil 'range)
+  (should (equal (evil-ex-parse ".-2,4+2-7-3+10-" nil 'range)
                  '(evil-ex-range
                    (evil-ex-line
                     (evil-ex-current-line)
@@ -6487,6 +6548,30 @@ if no previous selection")
                     (+ (evil-ex-signed-number
                         (intern "+") (string-to-number "42"))))
                    nil))))
+
+(ert-deftest evil-text-ex-search-offset ()
+  "Test for addresses like /base//pattern/"
+  :tags '(evil ex)
+  (ert-info ("without base")
+    (evil-test-buffer
+      "[l]ine 1\naaa\nbbb\naaa\nccc\nddd"
+      (":/aaa/d")
+      "line 1\nbbb\naaa\nccc\nddd"))
+  (ert-info ("with base")
+    (evil-test-buffer
+      "[l]ine 1\naaa\nbbb\naaa\nccc\nddd"
+      (":/bbb//aaa/d")
+      "line 1\naaa\nbbb\nccc\nddd"))
+  (ert-info ("range without base")
+    (evil-test-buffer
+      "[l]ine 1\naaa\nbbb\naaa\nccc\nddd\nccc\neee\n"
+      (":/aaa/;/ccc/d")
+      "line 1\nddd\nccc\neee\n"))
+  (ert-info ("range with base")
+    (evil-test-buffer
+      "[l]ine 1\naaa\nbbb\naaa\nccc\nddd\nccc\neee\n"
+      (":/bbb//aaa/;/ddd//ccc/d")
+      "line 1\naaa\nbbb\neee\n")))
 
 (ert-deftest evil-test-ex-goto-line ()
   "Test if :number moves point to a certain line"
@@ -7854,6 +7939,40 @@ maybe we need one line more with some text\n")
       (evil-set-register ?q (vconcat "ifoo" [escape]))
       ("@q\"qp")
       "fooifoo\e")))
+
+(ert-deftest evil-test-forward-symbol ()
+  :tags '(evil)
+  (ert-info ("Test symbol deletion")
+    (evil-test-buffer
+      "(test [t]his (hello there) with dao)"
+      ("dao")
+      "(test [(]hello there) with dao)"))
+  (ert-info ("Test symbol motion")
+    (evil-test-buffer
+      "(test[ ](hello there) with dao)"
+      (should (eq 0 (forward-evil-symbol 1)))
+      "(test ([h]ello there) with dao)"
+      (should (eq 0 (forward-evil-symbol 1)))
+      "(test (hello[ ]there) with dao)"))
+  (ert-info ("Test dio on whitespace")
+    (evil-test-buffer
+      "(test[ ]dio with whitespace)"
+      ("dio")
+      "(test[d]io with whitespace)"))
+  (ert-info ("Test dao/dio with empty lines")
+    (evil-test-buffer
+      "there are two lines in this file\n[\n]and some whitespace between them"
+      ("dao")
+      "there are two lines in this file\n[a]nd some whitespace between them")
+    (evil-test-buffer
+      "here are another two lines\n[\n]with a blank line between them"
+      ("dio")
+      "here are another two lines\n[w]ith a blank line between them"))
+  (ert-info ("Test dao/dio with empty lines and punctuation")
+    (evil-test-buffer
+      "These two lines \n[\n]!have punctuation on them"
+      ("dao")
+      "These two lines \n[!]have punctuation on them")))
 
 (provide 'evil-tests)
 

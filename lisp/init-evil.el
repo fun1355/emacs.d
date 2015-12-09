@@ -11,6 +11,16 @@
      ;; force update evil keymaps after git-timemachine-mode loaded
      (add-hook 'git-timemachine-mode-hook #'evil-normalize-keymaps)))
 
+(eval-after-load 'browse-kill-ring
+  '(progn
+     (evil-make-overriding-map browse-kill-ring-mode-map 'normal)
+     (add-hook 'browse-kill-ring-mode-hook #'evil-normalize-keymaps)))
+
+(eval-after-load 'etags-select
+  '(progn
+     (evil-make-overriding-map etags-select-mode-map 'normal)
+     (add-hook 'etags-select-mode-hook #'evil-normalize-keymaps)))
+
 (require 'evil)
 
 ;; @see https://bitbucket.org/lyro/evil/issue/342/evil-default-cursor-setting-should-default
@@ -21,13 +31,10 @@
 ;; enable evil-mode
 (evil-mode 1)
 
-;; {{@see https://github.com/timcharper/evil-surround
+;; {{ @see https://github.com/timcharper/evil-surround for tutorial
 (require 'evil-surround)
 (global-evil-surround-mode 1)
 ;; }}
-
-;; press ";" instead of ":"
-(define-key evil-normal-state-map (kbd ";") 'evil-ex)
 
 (require 'evil-mark-replace)
 
@@ -54,12 +61,149 @@
 (define-and-bind-text-object "r" "\{\{" "\}\}")
 ;; }}
 
+
+;; {{ nearby file path as text object,
+;;      - "vif" to select only basename
+;;      - "vaf" to select the full path
+;;
+;;  example: "/hello/world" "/test/back.exe"
+;;               "C:hello\\hello\\world\\test.exe" "D:blah\\hello\\world\\base.exe"
+;;
+;; tweak evil-filepath-is-nonname to re-define a path
+(defun evil-filepath-is-separator-char (ch)
+  "Check ascii table"
+  (let (rlt)
+    (if (or (= ch 47)
+            (= ch 92))
+        (setq rlt t))
+    rlt))
+
+(defun evil-filepath-not-path-char (ch)
+  "Check ascii table for charctater "
+  (let (rlt)
+    (if (or (and (<= 0 ch) (<= ch 32))
+            (= ch 34) ; double quotes
+            (= ch 39) ; single quote
+            (= ch 40) ; (
+            (= ch 41) ; )
+            (= ch 60) ; <
+            (= ch 62) ; >
+            (= ch 91) ; [
+            (= ch 93) ; ]
+            (= ch 96) ; `
+            (= ch 123) ; {
+            (= ch 125) ; }
+            (= 127 ch))
+        (setq rlt t))
+    rlt))
+
+(defun evil-filepath-char-not-placed-at-end-of-path (ch)
+  (or (= 44 ch) ; ,
+      (= 46 ch) ; .
+      ))
+
+(defun evil-filepath-calculate-path (b e)
+  (let (rlt f)
+    (when (and b e)
+      (setq b (+ 1 b))
+      (when (save-excursion
+                (goto-char e)
+                (setq f (evil-filepath-search-forward-char 'evil-filepath-is-separator-char t))
+                (and f (>= f b)))
+        (setq rlt (list b (+ 1 f) (- e 1)))))
+    rlt))
+
+(defun evil-filepath-get-path-already-inside ()
+  (let (b e)
+    (save-excursion
+      (setq b (evil-filepath-search-forward-char 'evil-filepath-not-path-char t)))
+    (save-excursion
+      (setq e (evil-filepath-search-forward-char 'evil-filepath-not-path-char))
+      (when e
+        (goto-char (- e 1))
+        ;; example: hello/world,
+        (if (evil-filepath-char-not-placed-at-end-of-path (following-char))
+            (setq e (- e 1)))
+        ))
+    (evil-filepath-calculate-path b e)))
+
+(defun evil-filepath-search-forward-char (fn &optional backward)
+  (let (found rlt (limit (if backward (point-min) (point-max))) out)
+    (save-excursion
+      (while (not out)
+        ;; for the char, exit
+        (if (setq found (apply fn (list (following-char))))
+            (setq out t)
+          ;; reach the limit, exit
+          (if (= (point) limit)
+              (setq out t)
+            ;; keep moving
+            (if backward (backward-char) (forward-char)))))
+      (if found (setq rlt (point))))
+    rlt))
+
+(defun evil-filepath-extract-region ()
+  "Find the closest file path"
+  (let (rlt
+        b
+        f1
+        f2)
+
+    (if (and (not (evil-filepath-not-path-char (following-char)))
+             (setq rlt (evil-filepath-get-path-already-inside)))
+        ;; maybe (point) is in the middle of the path
+        t
+      ;; need search forward AND backward to find the right path
+      (save-excursion
+        ;; path in backward direction
+        (when (setq b (evil-filepath-search-forward-char 'evil-filepath-is-separator-char t))
+          (goto-char b)
+          (setq f1 (evil-filepath-get-path-already-inside))))
+      (save-excursion
+        ;; path in forward direction
+        (when (setq b (evil-filepath-search-forward-char 'evil-filepath-is-separator-char))
+          (goto-char b)
+          (setq f2 (evil-filepath-get-path-already-inside))))
+      ;; pick one path as the final result
+      (cond
+       ((and f1 f2)
+        (if (> (- (point) (nth 2 f1)) (- (nth 0 f2) (point)))
+            (setq rlt f2)
+          (setq rlt f1)))
+       (f1
+        (setq rlt f1))
+       (f2
+        (setq rlt f2))))
+
+    rlt))
+
+(evil-define-text-object evil-filepath-inner-text-object (&optional count begin end type)
+  "File name of nearby path"
+  (let ((selected-region (evil-filepath-extract-region)))
+    (if selected-region
+        (evil-range (nth 1 selected-region) (nth 2 selected-region) :expanded t))))
+
+(evil-define-text-object evil-filepath-outer-text-object (&optional NUM begin end type)
+  "Nearby path"
+  (let ((selected-region (evil-filepath-extract-region)))
+    (if selected-region
+        (evil-range (car selected-region) (+ 1 (nth 2 selected-region)) type :expanded t))))
+
+(define-key evil-inner-text-objects-map "f" 'evil-filepath-inner-text-object)
+(define-key evil-outer-text-objects-map "f" 'evil-filepath-outer-text-object)
+;; }}
+
 ;; {{ https://github.com/syl20bnr/evil-escape
 (require 'evil-escape)
 (setq-default evil-escape-delay 0.2)
 (setq evil-escape-excluded-major-modes '(dired-mode))
 (setq-default evil-escape-key-sequence "kj")
 (evil-escape-mode 1)
+;; }}
+
+;; {{ evil-space
+(require 'evil-space)
+(evil-space-mode)
 ;; }}
 
 ;; Move back the cursor one position when exiting insert mode
@@ -73,15 +217,18 @@
     ))
 
 ;; (evil-set-initial-state 'org-mode 'emacs)
-;; Remap org-mode meta keys for convenience
+
+;; As a general RULE, mode specific evil leader keys started
+;; with uppercased character or 'g' or special character except "=" and "-"
 (evil-declare-key 'normal org-mode-map
   "gh" 'outline-up-heading
   "gl" 'outline-next-visible-heading
+  "S" 'org-store-link
+  "A" 'org-agenda
   "H" 'org-beginning-of-line ; smarter behaviour on headlines etc.
   "L" 'org-end-of-line ; smarter behaviour on headlines etc.
   "$" 'org-end-of-line ; smarter behaviour on headlines etc.
   "^" 'org-beginning-of-line ; ditto
-  "-" 'org-ctrl-c-minus ; change bullet style
   "<" 'org-metaleft ; out-dent
   ">" 'org-metaright ; indent
   (kbd "TAB") 'org-cycle)
@@ -117,10 +264,15 @@
         (speedbar-mode . emacs)
         (magit-commit-mode . normal)
         (magit-diff-mode . normal)
+        (browse-kill-ring-mode . normal)
+        (etags-select-mode . normal)
         (js2-error-buffer-mode . emacs)
         )
       do (evil-set-initial-state mode state))
 
+;; I prefer Emacs way after pressing ":" in evil-mode
+(define-key evil-ex-completion-map (kbd "C-a") 'move-beginning-of-line)
+(define-key evil-ex-completion-map (kbd "C-b") 'backward-char)
 (define-key evil-ex-completion-map (kbd "M-p") 'previous-complete-history-element)
 (define-key evil-ex-completion-map (kbd "M-n") 'next-complete-history-element)
 
@@ -131,6 +283,8 @@
 (define-key evil-normal-state-map (kbd "M-y") 'browse-kill-ring)
 (define-key evil-normal-state-map (kbd "j") 'evil-next-visual-line)
 (define-key evil-normal-state-map (kbd "k") 'evil-previous-visual-line)
+(define-key evil-normal-state-map (kbd "C-]") 'etags-select-find-tag-at-point)
+(define-key evil-visual-state-map (kbd "C-]") 'etags-select-find-tag-at-point)
 
 (require 'evil-matchit)
 (global-evil-matchit-mode 1)
@@ -138,7 +292,9 @@
 ;; press ",xx" to expand region
 ;; then press "z" to contract, "x" to expand
 (eval-after-load "evil"
-  '(setq expand-region-contract-fast-key "z"))
+  '(progn
+     (setq expand-region-contract-fast-key "z")
+     ))
 
 ;; I learn this trick from ReneFroger, need latest expand-region
 ;; @see https://github.com/redguardtoo/evil-matchit/issues/38
@@ -150,9 +306,15 @@
 (global-set-key (kbd "C-r") 'undo-tree-redo)
 
 ;; My frequently used commands are listed here
+;; For example, for line like `"ef" 'end-of-defun`
+;;   You can either press `,ef` or `M-x end-of-defun` to execute it
 (setq evil-leader/leader ",")
 (require 'evil-leader)
 (evil-leader/set-key
+  ;; {{ only usable in GUI emacs
+  "=" 'increase-default-font-height
+  "-" 'decrease-default-font-height
+  ;; }}
   "bf" 'beginning-of-defun
   "bu" 'backward-up-list
   "bb" 'back-to-previous-buffer
@@ -173,6 +335,8 @@
   "sc" 'shell-command
   "ee" 'eval-expression
   "aa" 'copy-to-x-clipboard ; used frequently
+  "aw" 'ace-swap-window
+  "af" 'ace-maximize-window
   "zz" 'paste-from-x-clipboard ; used frequently
   "cy" 'strip-convert-lines-into-one-big-string
   "bs" '(lambda () (interactive) (goto-edge-by-comparing-font-face -1))
@@ -188,8 +352,9 @@
   "dj" 'dired-jump ;; open the dired from current file
   "ff" 'toggle-full-window ;; I use WIN+F in i3
   "ip" 'find-file-in-project
-  "is" 'find-file-in-project-by-selected
-  "tm" 'get-term
+  "kk" 'find-file-in-project-by-selected
+  "fd" 'find-directory-in-project-by-selected
+  "trm" 'get-term
   "tff" 'toggle-frame-fullscreen
   "tfm" 'toggle-frame-maximized
   ;; "ci" 'evilnc-comment-or-uncomment-lines
@@ -202,14 +367,21 @@
   "rb" 'evilmr-replace-in-buffer
   "tt" 'evilmr-tag-selected-region ;; recommended
   "rt" 'evilmr-replace-in-tagged-region ;; recommended
-  "yy" 'cb-switch-between-controller-and-view
   "tua" 'artbollocks-mode
-  "yu" 'cb-get-url-from-controller
-  "ht" 'helm-etags-select ;; better than find-tag (C-])
+  "cby" 'cb-switch-between-controller-and-view
+  "cbu" 'cb-get-url-from-controller
+  "ht" 'etags-select-find-tag-at-point ;; better than find-tag (C-])
+  "hp" 'etags-select-find-tag
   "hm" 'helm-bookmarks
-  "hb" 'helm-back-to-last-point
-  "hh" 'browse-kill-ring
-  "cg" 'helm-ls-git-ls
+  "yy" 'browse-kill-ring
+  "gf" 'counsel-git-find-file
+  "gl" 'counsel-git-grep-yank-line
+  "gg" 'counsel-git-grep ; quickest grep should be easy to press
+  "gm" 'counsel-git-find-my-file
+  "rjs" 'run-js
+  "rmz" 'run-mozilla
+  "rpy" 'run-python
+  "rlu" 'run-lua
   "ud" 'my-gud-gdb
   "uk" 'gud-kill-yes
   "ur" 'gud-remove
@@ -222,6 +394,7 @@
   "ui" 'gud-stepi
   "uc" 'gud-cont
   "uf" 'gud-finish
+  "tci" 'toggle-company-ispell
   "kb" 'kill-buffer-and-window ;; "k" is preserved to replace "C-g"
   "it" 'issue-tracker-increment-issue-id-under-cursor
   "ls" 'highlight-symbol
@@ -234,13 +407,14 @@
   "." 'evil-ex
   ;; @see https://github.com/pidu/git-timemachine
   ;; p: previous; n: next; w:hash; W:complete hash; g:nth version; q:quit
-  "gm" 'git-timemachine-toggle
+  "tmt" 'git-timemachine-toggle
   ;; toggle overview,  @see http://emacs.wordpress.com/2007/01/16/quick-and-dirty-code-folding/
   "ov" 'my-overview-of-current-buffer
   "or" 'open-readme-in-git-root-directory
   "c$" 'org-archive-subtree ; `C-c $'
-  "c<" 'org-promote-subtree ; `C-c C-<'
-  "c>" 'org-demote-subtree ; `C-c C->'
+  ;; org-do-demote/org-do-premote support selected region
+  "c<" 'org-do-promote ; `C-c C-<'
+  "c>" 'org-do-demote ; `C-c C->'
   "cam" 'org-tags-view ; `C-c a m': search items in org-file-apps by tag
   "cxi" 'org-clock-in ; `C-c C-x C-i'
   "cxo" 'org-clock-out ; `C-c C-x C-o'
@@ -252,17 +426,18 @@
   "sj" 'w3m-search-js-api-mdn
   "sa" 'w3m-java-search
   "sh" 'w3mext-hacker-search ; code search in all engines with firefox
-  "gg" 'my-vc-git-grep
+  "qq" 'my-grep
   "gss" 'git-gutter:set-start-revision
   "gsh" 'git-gutter-reset-to-head-parent
   "gsr" 'git-gutter-reset-to-default
-  "hr" 'helm-recentf
   "xc" 'save-buffers-kill-terminal
-  "rr" 'steve-ido-choose-from-recentf ;; more quick than helm
+  "rr" (lambda () (interactive)
+         (unless recentf-mode (recentf-mode 1))
+         (ivy-recentf)) ; more quick than helm
   "di" 'evilmi-delete-items
   "si" 'evilmi-select-items
   "jb" 'js-beautify
-  "jp" 'jsons-print-path
+  "jpp" 'js2-print-json-path
   "se" 'string-edit-at-point
   "xe" 'eval-last-sexp
   "x0" 'delete-window
@@ -291,8 +466,7 @@
   "rnl" 'rinari-find-log
   "rno" 'rinari-console
   "rnt" 'rinari-find-test
-  "ss" 'swiper ; http://oremacs.com/2015/03/25/swiper-0.2.0/ for guide
-  "st" 'swiper-the-thing
+  "ss" 'swiper-the-thing ; http://oremacs.com/2015/03/25/swiper-0.2.0/ for guide
   "hst" 'hs-toggle-fold
   "hsa" 'hs-toggle-fold-all
   "hsh" 'hs-hide-block
@@ -317,7 +491,6 @@
   ;; recommended in html
   "md" 'mc/mark-all-like-this-dwim
   "otl" 'org-toggle-link-display
-  "oc" 'occur
   "om" 'toggle-org-or-message-mode
   "ut" 'undo-tree-visualize
   "ar" 'align-regexp
@@ -348,13 +521,38 @@
   "ri" 'yari-helm
   "vv" 'scroll-other-window
   "vu" 'scroll-other-window-up
-  "vr" 'vr/replace
-  "vq" 'vr/query-replace
-  "vm" 'vr/mc-mark
-  "js" 'w3mext-search-js-api-mdn
   "jde" 'js2-display-error-list
+  "jne" 'js2-next-error
   "jte" 'js2-mode-toggle-element
   "jtf" 'js2-mode-toggle-hide-functions
+  "jjeo" 'js2r-expand-object
+  "jjco" 'js2r-contract-object
+  "jjeu" 'js2r-expand-function
+  "jjcu" 'js2r-contract-function
+  "jjea" 'js2r-expand-array
+  "jjca" 'js2r-contract-array
+  "jjwi" 'js2r-wrap-buffer-in-iife
+  "jjig" 'js2r-inject-global-in-iife
+  "jjev" 'js2r-extract-var
+  "jjiv" 'js2r-inline-var
+  "jjrv" 'js2r-rename-var
+  "jjvt" 'js2r-var-to-this
+  "jjag" 'js2r-add-to-globals-annotation
+  "jjsv" 'js2r-split-var-declaration
+  "jjss" 'js2r-split-string
+  "jjef" 'js2r-extract-function
+  "jjem" 'js2r-extract-method
+  "jjip" 'js2r-introduce-parameter
+  "jjlp" 'js2r-localize-parameter
+  "jjtf" 'js2r-toggle-function-expression-and-declaration
+  "jjao" 'js2r-arguments-to-object
+  "jjuw" 'js2r-unwrap
+  "jjwl" 'js2r-wrap-in-for-loop
+  "jj3i" 'js2r-ternary-to-if
+  "jjlt" 'js2r-log-this
+  "jjsl" 'js2r-forward-slurp
+  "jjba" 'js2r-forward-barf
+  "jjk" 'js2r-kill
   "xh" 'mark-whole-buffer
   "xk" 'ido-kill-buffer
   "xs" 'save-buffer
@@ -371,10 +569,10 @@
   "xvl" 'vc-print-log
   "xvb" 'git-messenger:popup-message
   "xv=" 'git-gutter:popup-hunk
-  "ps" 'my-goto-previous-section
-  "ns" 'my-goto-next-section
-  "pp" 'my-goto-previous-hunk
+  "hh" 'cliphist-paste-item
+  "yu" 'cliphist-select-item
   "nn" 'my-goto-next-hunk
+  "pp" 'my-goto-previous-hunk
   "xnn" 'narrow-or-widen-dwim
   "xnw" 'widen
   "xnd" 'narrow-to-defun

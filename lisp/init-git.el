@@ -1,9 +1,9 @@
 ;; Solution 1: disable all vc backends
 ;; @see http://stackoverflow.com/questions/5748814/how-does-one-disable-vc-git-in-emacs
-(setq vc-handled-backends ())
+;; (setq vc-handled-backends ())
 
 ;; ;; Solution 2: if NO network mounted drive involved
-;; (setq vc-handled-backends '(Git SVN Hg))
+(setq vc-handled-backends '(Git SVN Hg))
 
 ;; ;; Solution 3: setup vc-handled-backends per project
 ;; (setq vc-handled-backends ())
@@ -52,14 +52,8 @@
 
   (global-set-key (kbd "C-x C-g") 'git-gutter:toggle)
   (global-set-key (kbd "C-x v =") 'git-gutter:popup-hunk)
-
-  ;; Jump to next/previous hunk
-  (global-set-key (kbd "C-x p") 'git-gutter:previous-hunk)
-  (global-set-key (kbd "C-x n") 'git-gutter:next-hunk)
-
   ;; Stage current hunk
   (global-set-key (kbd "C-x v s") 'git-gutter:stage-hunk)
-
   ;; Revert current hunk
   (global-set-key (kbd "C-x v r") 'git-gutter:revert-hunk)
 ;; }}
@@ -135,25 +129,24 @@
     ))
 
 
-;; {{ goto next/previous hunk/section
-(defun my-goto-next-section (arg)
-  (interactive "p")
-  (git-gutter:next-hunk arg))
-
-(defun my-goto-previous-section (arg)
-  (interactive "p")
-  (git-gutter:previous-hunk arg))
-
+;; {{ goto next/previous hunk
 (defun my-goto-next-hunk (arg)
   (interactive "p")
-  (git-gutter:next-hunk arg))
+  (forward-line)
+  (if (re-search-forward "\\(^<<<<<<<\\|^=======\\|^>>>>>>>\\)" (point-max) t)
+      (goto-char (line-beginning-position))
+    (forward-line -1)
+    (git-gutter:next-hunk arg)))
 
 (defun my-goto-previous-hunk (arg)
   (interactive "p")
-  (git-gutter:previous-hunk arg))
+  (forward-line -1)
+  (if (re-search-backward "\\(^>>>>>>>\\|^=======\\|^<<<<<<<\\)" (point-min) t)
+      (goto-char (line-beginning-position))
+    (forward-line -1)
+    (git-gutter:previous-hunk arg)))
 
 ;; {{ git-messenger
-(autoload 'git-messenger:popup-message "git-messenger" "" t)
 ;; show details to play `git blame' game
 (setq git-messenger:show-detail t)
 (add-hook 'git-messenger:after-popup-hook
@@ -161,16 +154,103 @@
             ;; extract commit id and put into the kill ring
             (when (string-match "\\(commit *: *\\)\\([0-9a-z]+\\)" msg)
               (copy-yank-str (match-string 2 msg))
-              (message "commit hash => clipboard & kill-ring")
+              (message "commit hash %s => clipboard & kill-ring" (match-string 2 msg))
               )))
 (global-set-key (kbd "C-x v p") 'git-messenger:popup-message)
 ;; }}
 
-(setq cppcm-debug t)
-(setq cppcm-get-executable-full-path-callback
-          (lambda (path type tgt-name)
-            ;; extract commit id and put into the kill ring
-            (message "path=%s type=%s tgt-name=%s" path type tgt-name)))
+;; {{ @see http://oremacs.com/2015/04/19/git-grep-ivy/
+(defun counsel-git-grep-or-find-api (fn git-cmd hint open-another-window)
+  "Apply FN on the output lines of GIT-CMD.  HINT is hint when user input.
+IF OPEN-ANOTHER-WINDOW is true, open the file in another window."
+  (let ((default-directory (locate-dominating-file
+                            default-directory ".git"))
+        (keyword (if (region-active-p)
+                     (buffer-substring-no-properties (region-beginning) (region-end))
+                   (read-string (concat "Enter " hint " pattern:" ))))
+        collection val lst)
+
+    (setq collection (split-string (shell-command-to-string (format git-cmd keyword))
+                                   "\n"
+                                   t))
+
+    (when (and collection (> (length collection) 0))
+      (setq val (if (= 1 (length collection)) (car collection)
+                    (ivy-read (format " matching \"%s\":" keyword) collection)))
+      (funcall fn open-another-window val))))
+
+(defun counsel-git-grep (&optional open-another-window)
+  "Grep in the current git repository.
+If OPEN-ANOTHER-WINDOW is not nil, results are displayed in new window."
+  (interactive "P")
+  (let (fn)
+    (setq fn (lambda (open-another-window val)
+               (let ((lst (split-string val ":")))
+                 (funcall (if open-another-window 'find-file-other-window 'find-file)
+                          (car lst))
+                 (let ((linenum (string-to-number (cadr lst))))
+                   (when (and linenum (> linenum 0))
+                     (goto-char (point-min))
+                     (forward-line (1- linenum)))))))
+
+    (counsel-git-grep-or-find-api fn
+                                  "git --no-pager grep --full-name -n --no-color -i -e \"%s\""
+                                  "grep"
+                                  open-another-window)))
+
+(defun counsel-git-find-file (&optional open-another-window)
+  "Find file in the current git repository.
+If OPEN-ANOTHER-WINDOW is not nil, results are displayed in new window."
+  (interactive "P")
+  (let (fn)
+    (setq fn (lambda (open-another-window val)
+               (funcall (if open-another-window 'find-file-other-window 'find-file) val)))
+    (counsel-git-grep-or-find-api fn
+                                  "git ls-tree -r HEAD --name-status | grep \"%s\""
+                                  "file"
+                                  open-another-window)))
+
+(defun counsel-git-grep-yank-line (&optional insert-line)
+  "Grep in the current git repository and yank the line.
+If INSERT-LINE is not nil, insert the line grepped"
+  (interactive "P")
+  (let (fn)
+    (setq fn (lambda (unused-param val)
+               (let ((lst (split-string val ":")) text-line)
+                 ;; the actual text line could contain ":"
+                 (setq text-line (replace-regexp-in-string (format "^%s:%s:" (car lst) (nth 1 lst)) "" val))
+                 ;; trim the text line
+                 (setq text-line (replace-regexp-in-string (rx (* (any " \t\n")) eos) "" text-line))
+                 (kill-new text-line)
+                 (if insert-line (insert text-line))
+                 (message "line from %s:%s => kill-ring" (car lst) (nth 1 lst)))))
+
+    (counsel-git-grep-or-find-api fn
+                                  "git --no-pager grep --full-name -n --no-color -i -e \"%s\""
+                                  "grep"
+                                  nil)))
+
+(defvar counsel-my-name-regex ""
+  "My name used by `counsel-git-find-my-file', support regex like '[Tt]om [Cc]hen'.")
+
+(defun counsel-git-find-my-file (&optional num)
+  "Find my files in the current git repository.
+If NUM is not nil, find files since NUM weeks ago.
+Or else, find files since 24 weeks (6 months) ago."
+  (interactive "P")
+  (let (fn cmd)
+    (setq fn (lambda (open-another-window val)
+               (find-file val)))
+    (unless (and num (> num 0))
+      (setq num 24))
+    (setq cmd (concat "git log --pretty=format: --name-only --since=\""
+                                          (number-to-string num)
+                                          " weeks ago\" --author=\""
+                                          counsel-my-name-regex
+                                          "\" | grep \"%s\" | sort | uniq"))
+    (message "cmd=%s" cmd)
+    (counsel-git-grep-or-find-api fn cmd "file" nil)))
+;; }}
 
 (provide 'init-git)
 

@@ -28,8 +28,7 @@
         (setq rlt (string-match "^\\(value\\|class\\|ng[A-Za-z0-9-]*\\)$" thing))
         rlt))
      (t t))
-    rlt
-    ))
+    rlt))
 
 (put 'web-mode 'flyspell-mode-predicate 'web-mode-flyspell-verify)
 
@@ -60,8 +59,7 @@
            (setq args (append args '("--run-together" "--run-together-limit=16" "--run-together-min=2")))))
         ((string-match "hunspell$" ispell-program-name)
          (setq args nil))))
-    args
-    ))
+    args))
 
 ;; Aspell Setup (recommended):
 ;; Skipped because it's easy.
@@ -92,7 +90,8 @@
   (setq ispell-local-dictionary "en_US")
   (setq ispell-local-dictionary-alist
         '(("en_US" "[[:alpha:]]" "[^[:alpha:]]" "[']" nil nil nil utf-8))))
- (t (setq ispell-program-name nil)))
+ (t (setq ispell-program-name nil)
+    (message "You need install either aspell or hunspell for ispell")))
 
 ;; ispell-cmd-args is useless, it's the list of *extra* command line arguments we will append to the ispell process when ispell-send-string()
 ;; ispell-extra-args is the command arguments which will *always* be used when start ispell process
@@ -123,7 +122,7 @@
 ;; Add auto spell-checking in comments for all programming language modes
 ;; if and only if there is enough memory
 ;; You can use prog-mode-hook instead.
-(unless *no-memory*
+(if (and (not *no-memory*) ispell-program-name)
   (dolist (hook '(lisp-mode-hook
                   emacs-lisp-mode-hook
                   scheme-mode-hook
@@ -145,9 +144,18 @@
                   js2-mode-hook))
     (add-hook hook 'flyspell-prog-mode)))
 
-
 ;; you can also use "M-x ispell-word" or hotkey "M-$". It pop up a multiple choice
 ;; @see http://frequal.com/Perspectives/EmacsTip03-FlyspellAutoCorrectWord.html
 (global-set-key (kbd "C-c s") 'flyspell-auto-correct-word)
+
+;; {{ avoid spell-checking doublon (double word) in certain major modes
+(defvar flyspell-check-doublon t
+  "Check doublon (double word) when calling `flyspell-highlight-incorrect-region'.")
+ (make-variable-buffer-local 'flyspell-check-doublon)
+
+(defadvice flyspell-highlight-incorrect-region (around flyspell-highlight-incorrect-region-hack activate)
+  (if (or flyspell-check-doublon (not (eq 'doublon (ad-get-arg 2))))
+      ad-do-it))
+;; }}
 
 (provide 'init-spelling)

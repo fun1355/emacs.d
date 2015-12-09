@@ -1,19 +1,16 @@
 ;; may be in an arbitrary order
 (eval-when-compile (require 'cl))
 
-;; json
-(setq auto-mode-alist (cons '("\\.json$" . json-mode) auto-mode-alist))
-(setq auto-mode-alist (cons '("\\.jason$" . json-mode) auto-mode-alist))
-(setq auto-mode-alist (cons '("\\.jshintrc$" . json-mode) auto-mode-alist))
-
 ;; {{ js2-mode or javascript-mode
-(setq js2-use-font-lock-faces t
-      js2-mode-must-byte-compile nil
-      js2-idle-timer-delay 0.5 ;; could not be too big for real time syntax check
-      js2-indent-on-enter-key t
-      js2-skip-preprocessor-directives t
-      js2-auto-indent-p t
-      js2-bounce-indent-p t)
+(setq-default js2-use-font-lock-faces t
+              js2-mode-must-byte-compile nil
+              js2-idle-timer-delay 0.5 ; NOT too big for real time syntax check
+              js2-auto-indent-p nil
+              js2-indent-on-enter-key nil ; annoying instead useful
+              js2-skip-preprocessor-directives t
+              js2-strict-inconsistent-return-warning nil ; return <=> return null
+              js2-enter-indents-newline nil
+              js2-bounce-indent-p t)
 
 (setq javascript-common-imenu-regex-list
       '(("Controller" "[. \t]controller([ \t]*['\"]\\([^'\"]+\\)" 1)
@@ -22,7 +19,7 @@
         ("State" "[. \t]state([ \t]*['\"]\\([^'\"]+\\)" 1)
         ("Factory" "[. \t]factory([ \t]*['\"]\\([^'\"]+\\)" 1)
         ("Service" "[. \t]service([ \t]*['\"]\\([^'\"]+\\)" 1)
-        ("Module" "[. \t]module([ \t]*['\"]\\([a-zA-Z0-9_\.]+\\)" 1)
+        ("Module" "[. \t]module( *['\"]\\([a-zA-Z0-9_.]+\\)['\"], *\\[" 1)
         ("ngRoute" "[. \t]when(\\(['\"][a-zA-Z0-9_\/]+['\"]\\)" 1)
         ("Directive" "[. \t]directive([ \t]*['\"]\\([^'\"]+\\)" 1)
         ("Event" "[. \t]\$on([ \t]*['\"]\\([^'\"]+\\)" 1)
@@ -43,13 +40,16 @@
     (imenu--generic-function javascript-common-imenu-regex-list)))
 
 (defun mo-js-mode-hook ()
-  (unless (is-buffer-file-temp)
+  (when (and  (not (is-buffer-file-temp)) (not (derived-mode-p 'js2-mode)))
+    ;; js-mode only setup, js2-mode inherit from js-mode since v20150909
     (setq imenu-create-index-function 'mo-js-imenu-make-index)
     ;; https://github.com/illusori/emacs-flymake
     ;; javascript support is out of the box
     ;; DONOT jslint json
     ;; (add-to-list 'flymake-allowed-file-name-masks
     ;;              '("\\.json\\'" flymake-javascript-init))
+    (setq flyspell-check-doublon nil)
+    (message "mo-js-mode-hook called")
     (flymake-mode 1)))
 
 (add-hook 'js-mode-hook 'mo-js-mode-hook)
@@ -174,6 +174,67 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
   (setq extra-rlt (js2-imenu--remove-duplicate-items extra-rlt))
   (append rlt extra-rlt))
 
+;; {{ print json path, will be removed when latest STABLE js2-mode released
+(defun js2-get-element-index-from-array-node (elem array-node &optional hardcoded-array-index)
+  "Get index of ELEM from ARRAY-NODE or 0 and return it as string."
+  (let ((idx 0) elems (rlt hardcoded-array-index))
+    (setq elems (js2-array-node-elems array-node))
+    (if (and elem (not hardcoded-array-index))
+        (setq rlt (catch 'nth-elt
+                    (dolist (x elems)
+                      ;; We know the ELEM does belong to ARRAY-NODE,
+                      (if (eq elem x) (throw 'nth-elt idx))
+                      (setq idx (1+ idx)))
+                    0)))
+    (format "[%s]" rlt)))
+
+(defun js2-print-json-path (&optional hardcoded-array-index)
+  "Print the path to the JSON value under point, and save it in the kill ring.
+If HARDCODED-ARRAY-INDEX provided, array index in JSON path is replaced with it."
+  (interactive "P")
+  (let (previous-node current-node
+        key-name
+        rlt)
+
+    ;; The `js2-node-at-point' starts scanning from AST root node.
+    ;; So there is no way to optimize it.
+    (setq current-node (js2-node-at-point))
+
+    (while (not (js2-ast-root-p current-node))
+      (cond
+       ;; JSON property node
+       ((js2-object-prop-node-p current-node)
+        (setq key-name (js2-prop-node-name (js2-object-prop-node-left current-node)))
+        (if rlt (setq rlt (concat "." key-name rlt))
+          (setq rlt (concat "." key-name))))
+
+       ;; Array node
+       ((or (js2-array-node-p current-node))
+        (setq rlt (concat (js2-get-element-index-from-array-node previous-node
+                                                                 current-node
+                                                                 hardcoded-array-index)
+                          rlt)))
+
+       ;; Other nodes are ignored
+       (t))
+
+      ;; current node is archived
+      (setq previous-node current-node)
+      ;; Get parent node and continue the loop
+      (setq current-node (js2-node-parent current-node)))
+
+    (cond
+     (rlt
+      ;; Clean the final result
+      (setq rlt (replace-regexp-in-string "^\\." "" rlt))
+      (kill-new rlt)
+      (message "%s => kill-ring" rlt))
+     (t
+      (message "No JSON path found!")))
+
+    rlt))
+;; }}
+
 (eval-after-load 'js2-mode
   '(progn
      (defadvice js2-mode-create-imenu-index (around my-js2-mode-create-imenu-index activate)
@@ -183,20 +244,20 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
                (save-excursion
                  (imenu--generic-function js2-imenu-extra-generic-expression)))
          (setq ad-return-value (js2-imenu--merge-imenu-items ad-return-value extra-rlt))
-         ad-return-value))
-     (require 'js2-refactor)
-     (js2r-add-keybindings-with-prefix "C-c C-m")))
+         ad-return-value))))
 ;; }}
 
 (defun my-js2-mode-setup()
   (unless (is-buffer-file-temp)
-    ;; looks nodejs is more popular, if you prefer rhino, change to "js"
-    (setq inferior-js-program-command "node --interactive")
+    ;; looks nodejs is more popular
     (require 'js-comint)
-    ;; if use node.js, we need nice output
+    ;; if use node.js we need nice output
     (setenv "NODE_NO_READLINE" "1")
+    (setq flyspell-check-doublon nil)
     (js2-imenu-extras-mode)
     (setq mode-name "JS2")
+    (require 'js2-refactor)
+    (js2-refactor-mode 1)
     (flymake-mode -1)
     (require 'js-doc)
     (define-key js2-mode-map "\C-cd" 'js-doc-insert-function-doc)
@@ -204,6 +265,10 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
 
 (autoload 'js2-mode "js2-mode" nil t)
 (add-hook 'js2-mode-hook 'my-js2-mode-setup)
+
+(setq auto-mode-alist (cons '("\\.json$" . js-mode) auto-mode-alist))
+(setq auto-mode-alist (cons '("\\.jason$" . js-mode) auto-mode-alist))
+(setq auto-mode-alist (cons '("\\.jshintrc$" . js-mode) auto-mode-alist))
 
 (cond
  ((not *no-memory*)
@@ -217,9 +282,6 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
 ;; }}
 
 (add-hook 'coffee-mode-hook 'flymake-coffee-load)
-
-;; @see https://github.com/Sterlingg/json-snatcher
-(autoload 'jsons-print-path "json-snatcher" nil t)
 
 ;; {{ js-beautify
 (defun js-beautify ()
@@ -239,21 +301,34 @@ sudo pip install jsbeautifier"
     (goto-char orig-point)))
 ;; }}
 
-;; After js2 has parsed a js file, we look for jslint globals decl comment ("/* global Fred, _, Harry */") and
-;; add any symbols to a buffer-local var of acceptable global vars
-;; Note that we also support the "symbol: true" way of specifying names via a hack (remove any ":true"
-;; to make it look like a plain decl, and any ':false' are left behind so they'll effectively be ignored as
-;; you can;t have a symbol called "someName:false"
-(add-hook 'js2-post-parse-callbacks
-          (lambda ()
-            (when (> (buffer-size) 0)
-              (let ((btext (replace-regexp-in-string
-                            ": *true" " "
-                            (replace-regexp-in-string "[\n\t ]+" " " (buffer-substring-no-properties 1 (buffer-size)) t t))))
-                (mapc (apply-partially 'add-to-list 'js2-additional-externs)
-                      (split-string
-                       (if (string-match "/\\* *global *\\(.*?\\) *\\*/" btext) (match-string-no-properties 1 btext) "")
-                       " *, *" t))
-                ))))
+(setq-default js2-additional-externs
+              '("$"
+                "AccessifyHTML5"
+                "KeyEvent"
+                "Raphael"
+                "React"
+                "angular"
+                "app"
+                "beforeEach"
+                "browser"
+                "by"
+                "clearInterval"
+                "clearTimeout"
+                "define"
+                "describe"
+                "element"
+                "expect"
+                "inject"
+                "it"
+                "jQuery"
+                "jasmine"
+                "ko"
+                "log"
+                "module"
+                "process"
+                "require"
+                "setInterval"
+                "setTimeout"
+                "utag"))
 
 (provide 'init-javascript)
