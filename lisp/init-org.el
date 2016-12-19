@@ -18,11 +18,7 @@
 
 ;; no spell check for property
 (defun org-mode-current-line-is-property ()
-  (let (cur-line)
-    (setq cur-line (buffer-substring-no-properties
-                    (line-beginning-position) (line-end-position)))
-    ;; (message "cur-line=%s" cur-line)
-    (string-match "^[ \t]+:[A-Z]+:[ \t]+" cur-line)))
+  (string-match "^[ \t]+:[A-Z]+:[ \t]+" (my-line-str)))
 
 ;; Please note flyspell only use ispell-word
 (defadvice org-mode-flyspell-verify (after org-mode-flyspell-verify-hack activate)
@@ -63,13 +59,40 @@
 
 (my-setup-odt-org-convert-process)
 
+(defun narrow-to-region-indirect-buffer-maybe (start end use-indirect-buffer)
+  "Indirect buffer could multiple widen on same file."
+  (if (region-active-p) (deactivate-mark))
+  (if use-indirect-buffer
+      (with-current-buffer (clone-indirect-buffer
+                            (generate-new-buffer-name
+                             (concat (buffer-name) "-indirect-"
+                                     (number-to-string start) "-"
+                                     (number-to-string end)))
+                            'display)
+        (narrow-to-region start end)
+        (goto-char (point-min)))
+      (narrow-to-region start end)))
+
 ;; @see https://gist.github.com/mwfogleman/95cc60c87a9323876c6c
-(defun narrow-or-widen-dwim ()
-  "If the buffer is narrowed, it widens. Otherwise, it narrows to region, or Org subtree."
-  (interactive)
+(defun narrow-or-widen-dwim (&optional use-indirect-buffer)
+  "If the buffer is narrowed, it widens.
+ Otherwise, it narrows to region, or Org subtree.
+If use-indirect-buffer is not nil, use `indirect-buffer' to hold the widen content."
+  (interactive "P")
   (cond ((buffer-narrowed-p) (widen))
-        ((region-active-p) (narrow-to-region (region-beginning) (region-end)))
-        ((equal major-mode 'org-mode) (org-narrow-to-subtree))
+        ((region-active-p)
+         (narrow-to-region-indirect-buffer-maybe (region-beginning)
+                                                 (region-end)
+                                                 use-indirect-buffer))
+        ((equal major-mode 'org-mode)
+         (org-narrow-to-subtree))
+        ((equal major-mode 'diff-mode)
+         (let* (b e)
+           (save-excursion
+             (setq b (diff-beginning-of-file))
+             (setq e (progn (diff-end-of-file) (point))))
+           (when (and b e (< b e))
+             (narrow-to-region-indirect-buffer-maybe b e use-indirect-buffer))))
         (t (error "Please select a region to narrow to"))))
 
 ;; Various preferences
@@ -137,6 +160,7 @@
 
 (eval-after-load 'org
   '(progn
+     (setq org-imenu-depth 9)
      (require 'org-clock)
      ;; @see http://irreal.org/blog/1
      (setq org-src-fontify-natively t)))
@@ -144,11 +168,21 @@
 (defun org-mode-hook-setup ()
   (setq evil-auto-indent nil)
   ;; org-mode's own flycheck will be loaded
-  (flyspell-mode 1)
+  (enable-flyspell-mode-conditionally)
 
   ;; but I don't want to auto spell check when typing,
-  ;; you can comment out `(flyspell-mode -1)` if prefer auto spell check
+  ;; please comment out `(flyspell-mode -1)` if you prefer auto spell check
   (flyspell-mode -1)
+
+  ;; for some reason, org8 disable odt export by default
+  (add-to-list 'org-export-backends 'odt)
+  (add-to-list 'org-export-backends 'org) ; for org-mime
+
+  ;; org-mime setup, run this command in org-file, than yank in `message-mode'
+  (local-set-key (kbd "C-c M-o") 'org-mime-org-buffer-htmlize)
+
+  ;; don't spell check double words
+  (setq flyspell-check-doublon nil)
 
   ;; display wrapped lines instead of truncated lines
   (setq truncate-lines nil)
@@ -157,21 +191,19 @@
 
 (defadvice org-open-at-point (around org-open-at-point-choose-browser activate)
   (let ((browse-url-browser-function
-         (cond ((equal (ad-get-arg 0) '(4))
-                'browse-url-generic)
-               ((equal (ad-get-arg 0) '(16))
-                'choose-browser)
-               (t
-                (lambda (url &optional new)
-                  (w3m-browse-url url t))))))
+         (cond
+          ;; open with external browser
+          ((equal (ad-get-arg 0) '(4)) 'browse-url-generic)
+          ;; open with w3m
+          (t 'w3m-browse-url))))
     ad-do-it))
 
 (defadvice org-publish (around org-publish-advice activate)
   "Stop running major-mode hook when org-publish"
   (let ((old load-user-customized-major-mode-hook))
-	(setq load-user-customized-major-mode-hook nil)
+    (setq load-user-customized-major-mode-hook nil)
     ad-do-it
-	(setq load-user-customized-major-mode-hook old)))
+    (setq load-user-customized-major-mode-hook old)))
 
 ;; {{ org2nikola set up
 (setq org2nikola-output-root-directory "~/.config/nikola")
@@ -180,6 +212,7 @@
       '(elisp "lisp"
               emacs-lisp "lisp"))
 ;; }}
+
 
 (setq org-export-html-style "<style type=\"text/css\">
 body {
@@ -258,5 +291,29 @@ p {
 }
 </style>")
 
+
+(defun org-demote-or-promote (&optional is-promote)
+  (interactive "P")
+  (unless (region-active-p)
+    (org-mark-subtree))
+  (if is-promote (org-do-promote)
+    (org-do-demote)))
+
+(defun org-mime-html-hook-setup ()
+  (org-mime-change-element-style "pre"
+                                 "color:#E6E1DC; background-color:#232323; padding:0.5em;")
+  (org-mime-change-element-style "blockquote"
+                                 "border-left: 2px solid gray; padding-left: 4px;"))
+;; org-mime setup
+(eval-after-load 'org-mime
+  '(progn
+     (add-hook 'org-mime-html-hook 'org-mime-html-hook-setup)))
+
+;; {{ @see http://orgmode.org/worg/org-contrib/org-mime.html
+;; demo video: http://vimeo.com/album/1970594/video/13158054
+(add-hook 'message-mode-hook
+          (lambda ()
+            (local-set-key (kbd "C-c M-o") 'org-mime-htmlize)))
+;; }}
 
 (provide 'init-org)

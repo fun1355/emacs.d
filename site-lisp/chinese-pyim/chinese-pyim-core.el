@@ -7,7 +7,7 @@
 ;; Author: Ye Wenbin <wenbinye@163.com>, Feng Shu <tumashu@163.com>
 ;; URL: https://github.com/tumashu/chinese-pyim
 ;; Version: 0.0.1
-;; Package-Requires: ((cl-lib "0.5")(pos-tip "0.4"))
+;; Package-Requires: ((cl-lib "0.5") (pos-tip "0.4") (popup "0.1") (async "1.6"))
 ;; Keywords: convenience, Chinese, pinyin, input-method
 
 ;; This program is free software; you can redistribute it and/or modify
@@ -42,6 +42,8 @@
 (require 'cl-lib)
 (require 'help-mode)
 (require 'pos-tip)
+(require 'popup)
+(require 'async)
 (require 'chinese-pyim-pymap)
 
 (defgroup chinese-pyim nil
@@ -52,10 +54,21 @@
   "一个目录，用于保存与 Chinese-pyim 相关的文件。"
   :group 'chinese-pyim)
 
+(defcustom pyim-cache-directory (locate-user-emacs-file "pyim/cache")
+  "一个目录，用于保存 Chinese-pyim 词库对应的 cache 文件。"
+  :group 'chinese-pyim)
+
 (defcustom pyim-personal-file
   (concat (file-name-as-directory pyim-directory)
           "pyim-personal.txt")
   "这个文件用来保存用户曾经输入过的中文词条，和这些词条输入的先后顺序。"
+  :group 'chinese-pyim
+  :type 'file)
+
+(defcustom pyim-property-file
+  (concat (file-name-as-directory pyim-directory)
+          "pyim-words-property.txt")
+  "这个文件用来保存已输入中文词条的其他有用属性。"
   :group 'chinese-pyim
   :type 'file)
 
@@ -73,7 +86,10 @@ plist 来表示，比如：
 1. `:name'      代表词库名称，用户可以按照喜好来确定。
 2. `:coding'    表示词库文件使用的编码。
 3. `:file'      表示词库文件，
-4. `:dict-type' 表示词库文件是普通词库文件还是 guessdict 词库文件。"
+4. `:dict-type' 表示词库文件的类型。
+
+另外一个与这个变量功能类似的变量是： `pyim-extra-dicts', 专门
+用于和 elpa 格式的词库包集成。"
   :group 'chinese-pyim
   :type 'list)
 
@@ -119,38 +135,148 @@ plist 来表示，比如：
   :group 'chinese-pyim
   :type 'list)
 
-(defcustom pyim-translate-trigger-char ?v
+(defcustom pyim-default-pinyin-scheme 'default
+  "设置 Chinese-pyim 使用哪一种拼音方案，默认使用全拼输入。"
+  :group 'chinese-pyim)
+
+(defcustom pyim-pinyin-schemes
+  '((default
+      :document "全拼输入法方案（不可删除）。"
+      :class quanpin
+      :first-chars "abcdefghjklmnopqrstwxyz"
+      :rest-chars "vmpfwckzyjqdltxuognbhsrei'-a"
+      :prefer-trigger-chars "v")
+    (pyim-shuangpin
+     :document "与 Chinese-pyim 配合良好的双拼输入法方案，源自小鹤双拼方案。"
+     :class shuangpin
+     :first-chars "abcdefghijklmnpqrstuvwxyz"
+     :rest-chars "abcdefghijklmnopqrstuvwxyz"
+     :prefer-trigger-chars "o"
+     :keymaps-general (("a" "a" "a")
+                       ("b" "b" "in")
+                       ("c" "c" "ao")
+                       ("d" "d" "ai")
+                       ("e" "e" "e")
+                       ("f" "f" "en")
+                       ("g" "g" "eng")
+                       ("h" "h" "ang")
+                       ("i" "ch" "i")
+                       ("j" "j" "an")
+                       ("k" "k" "ing" "uai")
+                       ("l" "l" "iang" "uang")
+                       ("m" "m" "ian")
+                       ("n" "n" "iao")
+                       ("o" "o" "uo" "o")
+                       ("p" "p" "ie")
+                       ("q" "q" "iu")
+                       ("r" "r" "uan")
+                       ("s" "s" "iong" "ong")
+                       ("t" "t" "ue" "ve")
+                       ("u" "sh" "u")
+                       ("v" "zh" "v" "ui")
+                       ("w" "w" "ei")
+                       ("x" "x" "ia" "ua")
+                       ("y" "y" "un")
+                       ("z" "z" "ou"))
+     :keymaps-special ((("a" . "a") ("" . "a"))
+                       (("a" . "j") ("" . "an"))
+                       (("a" . "d") ("" . "ai"))
+                       (("a" . "c") ("" . "ao"))
+                       (("a" . "h") ("" . "ang"))
+                       (("e" . "e") ("" . "e"))
+                       (("e" . "w") ("" . "ei"))
+                       (("e" . "f") ("" . "en"))
+                       (("e" . "r") ("" . "er"))
+                       (("e" . "g") ("" . "eng"))
+                       (("a" . "g") ("" . "ng"))
+                       (("a" . "o") ("" . "o"))
+                       (("a" . "u") ("" . "ou"))))
+    (xiaohe-shuangpin
+     :document "小鹤双拼输入法方案。"
+     :class shuangpin
+     :first-chars "abcdefghijklmnopqrstuvwxyz"
+     :rest-chars "abcdefghijklmnopqrstuvwxyz"
+     :prefer-trigger-chars nil
+     :keymaps-general (("a" "a" "a")
+                       ("b" "b" "in")
+                       ("c" "c" "ao")
+                       ("d" "d" "ai")
+                       ("e" "e" "e")
+                       ("f" "f" "en")
+                       ("g" "g" "eng")
+                       ("h" "h" "ang")
+                       ("i" "ch" "i")
+                       ("j" "j" "an")
+                       ("k" "k" "ing" "uai")
+                       ("l" "l" "iang" "uang")
+                       ("m" "m" "ian")
+                       ("n" "n" "iao")
+                       ("o" "o" "uo" "o")
+                       ("p" "p" "ie")
+                       ("q" "q" "iu")
+                       ("r" "r" "uan")
+                       ("s" "s" "iong" "ong")
+                       ("t" "t" "ue" "ve")
+                       ("u" "sh" "u")
+                       ("v" "zh" "v" "ui")
+                       ("w" "w" "ei")
+                       ("x" "x" "ia" "ua")
+                       ("y" "y" "un")
+                       ("z" "z" "ou"))
+     :keymaps-special ((("a" . "a") ("" . "a"))
+                       (("a" . "j") ("" . "an"))
+                       (("a" . "d") ("" . "ai"))
+                       (("a" . "c") ("" . "ao"))
+                       (("a" . "h") ("" . "ang"))
+                       (("e" . "e") ("" . "e"))
+                       (("e" . "w") ("" . "ei"))
+                       (("e" . "f") ("" . "en"))
+                       (("e" . "r") ("" . "er"))
+                       (("e" . "g") ("" . "eng"))
+                       (("o" . "g") ("" . "ng"))
+                       (("o" . "o") ("" . "o"))
+                       (("o" . "u") ("" . "ou")))))
+  "Chinese-pyim 支持的所有拼音方案。")
+
+(defcustom pyim-translate-trigger-char "v"
   "用于触发特殊操作的字符，相当与单字快捷键。
 
 Chinese-pyim 内建的功能有：
 1. 光标前面的字符为标点符号时，按这个字符可以切换前面的标
    点符号的样式（半角/全角）
-2. 当光标前面为中文字符串时，输入 <num>v 可以用于保存自定义词条。"
+2. 当光标前面为中文字符串时，输入 <num>v 可以用于保存自定义词条。
+3. 其它。
+
+注意：单字快捷键受到拼音方案的限制，比如：全拼输入法可以将其设置为v,
+但双拼输入法下设置 v 可能就不行，所以，Chinese-pyim 首先会检查
+当前拼音方案下，这个快捷键设置是否合理有效，如果不是一个合理的设置，
+则使用拼音方案默认的 :prefer-trigger-chars 。
+
+具体请参考 `pyim-get-translate-trigger-char' 。"
   :group 'chinese-pyim
   :type 'character)
 
-(defcustom pyim-fuzzy-pinyin-adjust-function
-  'pyim-fuzzy-pinyin-adjust-1
-  "设定糢糊音处理函数"
-  :group 'chinese-pyim
-  :type 'function)
+(defcustom pyim-fuzzy-pinyin-alist
+  '(("en" "eng")
+    ("in" "ing")
+    ("un" "ong"))
+  "设定糢糊音"
+  :group 'chinese-pyim)
 
 (defcustom pyim-enable-words-predict
-  '(pinyin-similar guess-words)
+  '(pinyin-shouzimu pinyin-znabc)
   "一个 list，用于设置词语联想方式，当前支持：
 
-1. `pinyin-similar' 搜索拼音类似的词条做为联想词。
-2. `pinyin-shouzimu' 搜索拼音首字母对应的词条做为联想词。
-3. `pinyin-znabc' 类似智能ABC的词语联想(源于 emacs-eim)。
-4. `guess-words' 以上次输入的词条为 code，然后在 guessdict 中搜索，
-                 用搜索得到的词条来提高输入法识别精度。
-
-                 注意：这个方法需要用户安装 guessdict 词库，
-                       guessdict 词库文件可以用 `pyim-article2dict-guessdict'
-                       命令生成。
+1. `pinyin-shouzimu' 搜索拼音首字母对应的词条做为联想词。
+2. `pinyin-znabc' 类似智能ABC的词语联想(源于 emacs-eim)。
 
 当这个变量设置为 nil 时，关闭词语联想功能。"
   :group 'chinese-pyim)
+
+(defcustom pyim-isearch-enable-pinyin-search nil
+  "设置是否开启 isearch 中文拼音搜索功能。"
+  :group 'chinese-pyim
+  :type 'boolean)
 
 (defcustom pyim-page-length 5
   "每页显示的词条数目"
@@ -165,23 +291,16 @@ Chinese-pyim 内建的功能有：
   "Face to current string show in minibuffer"
   :group 'chinese-pyim)
 
-(defcustom pyim-tooltip-color nil
-  "设置 tooltip 选词框的颜色，设置格式为：
-
-    (FOREGROUND-COLOR . BACKGROUND-COLOR)
-
-例如：
-
-   (\"white\" . \"black\")
-
-如果这个变量设置为 nil，默认将使用变量 `pos-tip-foreground-color' 来指定
-前景颜色，使用变量 `pos-tip-background-color' 来指定背景颜色。"
+(defcustom pyim-english-input-switch-functions nil
+  "这个变量的取值为一个函数列表，这个函数列表中的任意一个函数的运行结果为 t 时，
+Chinese-pyim 也开启英文输入功能。"
   :group 'chinese-pyim)
 
-(defcustom pyim-english-input-switch-function nil
-  "一个函数，其运行结果为 t 时，Chinese-pyim 开启英文输入功能。"
-  :group 'chinese-pyim
-  :type 'function)
+(defcustom pyim-punctuation-half-width-functions nil
+  "取值为一个函数列表，这个函数列表中的任意一个函数的运行结果为 t 时，
+Chinese-pyim 输入半角标点，函数列表中每个函数都有一个参数：char ，表示
+最后输入的一个字符，具体见: `pyim-translate' 。"
+  :group 'chinese-pyim)
 
 (defcustom pyim-select-word-finish-hook nil
   "Chinese-pyim 选词完成时运行的hook，"
@@ -195,29 +314,36 @@ Chinese-pyim 内建的功能有：
   :group 'chinese-pyim
   :type 'function)
 
-(defcustom pyim-use-tooltip  t
-  "如何显示 Chinese-pyim 选词框，当取值为 t 并且 *tooltip 功能可以正常使用*
-时，使用 tooltip 显示选词框，当取值为 nil 时，使用 minibuffer 显示选词框。
+(defcustom pyim-use-tooltip 'popup
+  "如何绘制 Chinese-pyim 选词框。
 
-具体细节请参考函数 `pyim-use-tooltip-p' ."
+1. 当这个变量取值为 t 或者 'popup 时，使用 popup-el 包来绘制选词框；
+2. 当取值为 pos-tip 时，使用 pos-tip 包来绘制选词框；
+3. 当取值为 nil 时，将 minibuffer 做为选词框；"
   :group 'chinese-pyim)
+
+(defcustom pyim-guidance-format-function 'pyim-guidance-format-function-two-lines
+  "这个变量保存的函数用于 format 选词框中的字符串。"
+  :group 'chinese-pyim
+  :type 'function)
 
 (defcustom pyim-tooltip-width-adjustment 1.2
   "校正 tooltip 选词框宽度的数值，表示校正后的宽度是未校正前宽度的倍数。
 
-由于字体设置等原因，tooltip 选词框实际宽度会比 *预期宽度* 偏大或者偏小，
+由于字体设置等原因，pos-tip 选词框实际宽度会比 *预期宽度* 偏大或者偏小，
 这时，有可能会出现选词框词条显示不全或者选词框弹出位置不合理等问题。用户可以通过
-增大或者减小这个变量来改变 tooltip 选词框的宽度，取值大概在 0.5 ~ 2.0 范围之内。"
+增大或者减小这个变量来改变 tooltip 选词框的宽度，取值大概在 0.5 ~ 2.0 范围之内。
+
+注：这个选项只适用于 `pyim-use-tooltip' 取值为 'pos-tip 的时候。"
   :group 'chinese-pyim)
 
-(defcustom pyim-line-content-limit
-  (if (eq system-type 'windows-nt)
-      3000
-    10000)
+(defcustom pyim-line-content-limit 400
   "限制词库文件中的行长度。如果行太长，在windows平台下会出现严重的性能问题。"
   :group 'chinese-pyim)
 
+(defvar pyim-debug nil)
 (defvar pyim-title "灵拼" "Chinese-pyim 在 mode-line 中显示的名称。")
+(defvar pyim-extra-dicts nil "与 `pyim-dicts' 类似, 用于和 elpa 格式的词库包集成。")
 (defvar pyim-buffer-name " *Chinese-pyim*")
 (defvar pyim-buffer-list nil
   "一个列表，用来保存词库文件与 buffer 的对应信息。
@@ -225,16 +351,6 @@ Chinese-pyim 内建的功能有：
 2. 每一个 alist 都包含两个部份：
    1. buffer 词库文件导入时创建的 buffer (用户不可见)。
    2. file   词库文件的路径。")
-
-(defvar pyim-buffer-cache-list nil
-  "一个列表，用来缓存 `pyim-buffer-list' 中的普通词库 buffer，以加快访问速度。
-
-1. 每个元素都是一个 alist。
-2. 每一个 alist 都包含两个部份：
-   1. buffer 词库文件导入时创建的 buffer (用户不可见)。
-   2. buffer-cache 从词库 buffer 中构建的一个 hashtable。
-
-注意： *不缓存* 个人词库文件 buffer 和 guessdict 词库文件 buffer。")
 
 (defvar pyim-shen-mu
   '("b" "p" "m" "f" "d" "t" "n" "l" "g" "k" "h"
@@ -250,13 +366,11 @@ Chinese-pyim 内建的功能有：
   '("a" "o" "e" "ai" "ei" "ui" "ao" "ou" "er" "an" "en"
     "ang" "eng"))
 
-(defvar pyim-char-table (make-vector 1511 nil))
-
 (defvar pyim-current-key "" "已经输入的代码")
 (defvar pyim-current-str "" "当前选择的词条")
 (defvar pyim-last-input-word "" "保存上一次输入过的词条，用于实现某种词语联想功能。")
-(defvar pyim-input-ascii nil
-  "是否开启 Chinese-pyim 英文输入模式。")
+(defvar pyim-input-ascii nil  "是否开启 Chinese-pyim 英文输入模式。")
+(defvar pyim-force-input-chinese nil "是否强制开启中文输入模式。")
 
 (defvar pyim-current-choices nil
   "所有可选的词条，是一个list。
@@ -271,16 +385,22 @@ Chinese-pyim 内建的功能有：
 (defvar pyim-overlay nil "显示当前选择词条的 overlay")
 
 (defvar pyim-pinyin-position nil)
-(defvar pyim-pinyin-list nil)
+(defvar pyim-pylist-list nil
+  "Chinese-pyim 会将一个拼音字符串分解为一个或者多个 pylist （常见于双拼模式）,
+这个变量用于保存分解得到的结果。")
 
-(defvar pyim-guidance-str "" "显示可选词条的字符串")
+(defvar pyim-guidance-list nil
+  "这个 list 用于构建选词框中显示的字符串，其结构类似：
+
+(:key \"ni hao\" :current-page 1 :total-page 9 :words \"1.你好 2.你好 ...\")")
+
 (defvar pyim-current-pos nil "当前选择的词条在 pyim-current-choices 中的位置")
 
 (defvar pyim-load-hook nil)
 (defvar pyim-active-hook nil)
 
-(defvar pyim-punctuation-translate-p t
-  "*Non-nil means will translate punctuation.")
+(defvar pyim-punctuation-translate-p '(auto yes no)
+  "The car of its value will control the translation of punctuation.")
 
 (defvar pyim-pair-punctuation-status
   '(("\"" nil) ("'" nil))
@@ -289,6 +409,9 @@ Chinese-pyim 内建的功能有：
 (defvar pyim-punctuation-escape-list (number-sequence ?0 ?9)
   "Punctuation will not insert after this characters.
 If you don't like this funciton, set the variable to nil")
+
+(defvar pyim-dict-cache nil)
+(defvar pyim-dict-cache-create-p nil)
 
 (defvar pyim-mode-map
   (let ((map (make-sparse-keymap))
@@ -304,11 +427,11 @@ If you don't like this funciton, set the variable to nil")
       (define-key map (char-to-string i) 'pyim-number-select))
     (define-key map " " 'pyim-select-current)
     (define-key map [backspace] 'pyim-delete-last-char)
-    (define-key map (kbd "M-DEL") 'pyim-backward-kill-py)
-    (define-key map [tab] 'pyim-fuzzy-pinyin-adjust)
-    (define-key map (kbd "TAB") 'pyim-fuzzy-pinyin-adjust)
-    (define-key map "\M-g" 'pyim-fuzzy-pinyin-adjust)
     (define-key map [delete] 'pyim-delete-last-char)
+    (define-key map [M-backspace] 'pyim-backward-kill-py)
+    (define-key map [M-delete] 'pyim-backward-kill-py)
+    (define-key map [C-backspace] 'pyim-backward-kill-py)
+    (define-key map [C-delete] 'pyim-backward-kill-py)
     (define-key map "\177" 'pyim-delete-last-char)
     (define-key map "\C-n" 'pyim-next-page)
     (define-key map "\C-p" 'pyim-previous-page)
@@ -321,7 +444,6 @@ If you don't like this funciton, set the variable to nil")
     (define-key map "\C-m" 'pyim-quit-no-clear)
     (define-key map [return] 'pyim-quit-no-clear)
     (define-key map "\C-c" 'pyim-quit-clear)
-    (define-key map "\C-g" 'pyim-quit-clear)
     map)
   "Keymap")
 ;; #+END_SRC
@@ -334,8 +456,10 @@ If you don't like this funciton, set the variable to nil")
     pyim-current-choices
     pyim-current-pos
     pyim-input-ascii
-    pyim-english-input-switch-function
-    pyim-guidance-str
+    pyim-english-input-switch-function ;; obsolete
+    pyim-english-input-switch-functions
+    pyim-punctuation-half-width-functions
+    pyim-guidance-list
     pyim-translating
     pyim-overlay
 
@@ -350,8 +474,10 @@ If you don't like this funciton, set the variable to nil")
     pyim-pair-punctuation-status
     pyim-punctuation-escape-list
 
-    pyim-pinyin-list
-    pyim-pinyin-position)
+    pyim-pylist-list
+    pyim-pinyin-position
+
+    pyim-dict-cache)
   "A list of buffer local variable")
 
 (dolist (var pyim-local-variable-list)
@@ -371,10 +497,9 @@ If you don't like this funciton, set the variable to nil")
 ;; 真正启动 Chinese-pyim 的命令是 `pyim-start' ，这个命令做如下工作：
 ;; 1. 重置 `pyim-local-variable-list' 中所有的 local 变量。
 ;; 2. 使用 `pyim-load-file’加载词库文件，具体细节请参考：[[#load-dicts]]
-;; 3. 使用 `pyim-make-char-table' 创建汉字到拼音的 hash table，具体细节请
-;;    参考：[[#make-char-table]]
+;; 3. 使用 `pyim-cchar2pinyin-create-cache' 创建汉字到拼音的 hash table 。
 ;; 4. 运行hook： `pyim-load-hook'。
-;; 5. 将 `pyim-save-personal-file' 命令添加到 `kill-emacs-hook' emacs 关
+;; 5. 将 `pyim-save-files' 命令添加到 `kill-emacs-hook' emacs 关
 ;;    闭之前将个人词频 buffer 的内容保存到个人词频文件。具体细节请参考：
 ;;    [[save-personal-file]]。
 ;; 6. 设定变量：
@@ -392,26 +517,31 @@ If you don't like this funciton, set the variable to nil")
 ;;    请参考： [[pyim-kill-buffers]]
 
 ;; #+BEGIN_SRC emacs-lisp
-(defun pyim-start (name &optional active-func restart save-personal-file)
+(defun pyim-start (name &optional active-func restart save-files)
   (interactive)
   (mapc 'kill-local-variable pyim-local-variable-list)
   (mapc 'make-local-variable pyim-local-variable-list)
   ;; 重启时，kill 所有已经打开的 buffer。
-  (when (and restart save-personal-file)
-    (pyim-save-personal-file))
+  (when (and restart save-files)
+    (pyim-save-files))
   (when restart
     (pyim-kill-buffers)
     (setq pyim-buffer-list nil))
   (unless (and pyim-buffer-list
+               pyim-dict-cache-create-p
                (pyim-check-buffers)
                (not restart))
+    (pyim-cchar2pinyin-cache-create)
+    (pyim-pinyin2cchar-cache-create)
     (setq pyim-buffer-list (pyim-load-file))
-    (pyim-make-char-table)
+    (pyim-dict-cache-create t)
     (run-hooks 'pyim-load-hook)
     (message nil))
-
-  (unless (member 'pyim-save-personal-file kill-emacs-hook)
-    (add-to-list 'kill-emacs-hook 'pyim-save-personal-file))
+  ;; pyim-buffer-list 可能在其它地方创建，这个
+  ;; 确保词库 cache 正确生成。
+  (pyim-dict-cache-create)
+  (unless (member 'pyim-save-files kill-emacs-hook)
+    (add-to-list 'kill-emacs-hook 'pyim-save-files))
 
   (setq input-method-function 'pyim-input-method)
   (setq deactivate-current-input-method-function 'pyim-inactivate)
@@ -460,11 +590,11 @@ If you don't like this funciton, set the variable to nil")
 ;; 件后，记得运行 `pyim-update-dict-file' 来对文件排序。
 
 ;; **** 个人词频文件
-;; 虽然 Chinese-pyim 只使用一种词库文件格式，但定义了两种词库类型，用于不
+;; 虽然 Chinese-pyim 只使用一种词库文件格式，但定义了多种词库类型，用于不
 ;; 同的目的：
-;; 1. 个人词频文件
-;; 2. 普通词库文件
-;; 3. Guessdict词库文件
+;; 1. 个人词频文件 (personal-file)
+;; 2. 属性文件 (property-file)
+;; 3. 普通词库文件 (pinyin-dict)
 
 ;; 个人词频文件用来保存用户曾经输入过的中文词条以及这些词条输入的先后顺序
 ;; （也就是词频信息）。Chinese-pyim 搜索中文词条时，个人词频文件里的词条
@@ -478,14 +608,14 @@ If you don't like this funciton, set the variable to nil")
 ;;    需要用户经常备份。
 
 ;; 值得注意的是：不建议用户 *手动编辑* 这个文件，因为：每次 emacs 关闭之
-;; 前，emacs 会运行命令：`pyim-save-personal-file' 来更新这个文件，编辑过
+;; 前，emacs 会运行命令：`pyim-save-files' 来更新这个文件，编辑过
 ;; 的内容将会被覆盖。
 
 ;; BUG：当用户错误的将这个变量设定为其他重要文件时，也存在文件内容破坏的风险。
 
 ;; 当这个文件中的词条数量增长到一定程度，用户可以直接将这个文件转换为词库。
 
-;; **** 普通词库文件 和 Guessdict词库
+;; **** 普通词库文件
 ;; 普通词库文件，也可以叫做共享词库文件，与个人词频文件相比，普通词库文件
 ;; 有如下特点：
 ;; 1. 词条数量巨大：普通词库文件中往往包含大量的词条信息（可能超过50万）。
@@ -493,23 +623,14 @@ If you don't like this funciton, set the variable to nil")
 ;;    所以普通词库文件的内容一般不会发生改变。
 ;; 3. 普通词库文件适宜制作词库包，在用户之间共享。
 
-;; Guessdict词库用于词语联想，它与普通词库文件有类似的特征，唯一不同的是：
-;; Guessdict词库的 code 是中文，而不是拼音。
-
-;; #+BEGIN_EXAMPLE
-;; 我爱 北京 美女 旅游
-;; 我们 去哪 去看海
-;; #+END_EXAMPLE
-
-;; 我们使用变量 `pyim-dicts' 来设定普通词库文件和 guessdict 词库的信息：
+;; 我们使用变量 `pyim-dicts' 和 `pyim-extra-dicts' 来设定普通词库文件的信息：
 ;; 1. `:name' 用户给词库设定的名称，暂时没有用处，未来可能用于构建词库包。
 ;; 2. `:file' 词库文件的绝对路径。
 ;; 3. `:coding' 词库文件的编码，词库文件是一个文本文件，window系统一般使
 ;;    用 GBK 编码来保存中文，而Linux系统一般使用 UTF-8 编码来保存中文，
 ;;    emacs 似乎不能自动识别中文编码，所以要求用户明确告知词库文件使用什
 ;;    么编码来保存。
-;; 4. `:dict-type' 当前词库文件是普通词库还是 guessdict 词库，普通词库
-;;     设置为 pinyin-dict，guessdict 词库设置为 guess-dict。
+;; 4. `:dict-type' 词库文件的类型。
 
 ;; *** 加载词库
 ;;    :PROPERTIES:
@@ -518,10 +639,11 @@ If you don't like this funciton, set the variable to nil")
 ;; Chinese-pyim 激活时，首先会使用 `pyim-load-file' 加载个人词频文件和普
 ;; 通词库文件，如果个人词频文件不存在时，Chinese-pyim 会使用函数：
 ;; `pyim-create-template-dict' 自动创建这个文件。如果用户没有设定
-;; `pyim-dicts'， `pyim-load-file' 会弹出警告信息，告知用户安装词库的命令。
+;; `pyim-dicts' 或 `pyim-extra-dicts'， `pyim-load-file' 会弹出警告信息，
+;; 告知用户安装词库的命令。
 
-;; `pyim-load-file' 加载词库简单来说就是：创建一个buffer，然后将词
-;; 库文件的内容插入新创建的这个buffer，同时得到buffer和file的对应表。
+;; `pyim-load-file' 加载词库简单来说就是：创建一个 buffer ，然后将词
+;; 库文件的内容插入新创建的这个 buffer ，同时得到 buffer 和 file 的对应表。
 ;; 具体过程为：
 ;; 1. 首先创建一个 buffer，buffer 的名称源自 `pyim-buffer-name'，
 ;;    Chinese-pyim 默认创建的 buffer 名称类似：
@@ -536,10 +658,10 @@ If you don't like this funciton, set the variable to nil")
 ;; 4. 在运行的过程中，`pyim-load-file' 会创建一个词库文件名与 buffer 的对
 ;;    应表，其结构类似：
 ;;    #+BEGIN_EXAMPLE
-;;    ((("buffer" . #<buffer  *Chinese-pyim*>) ("file" . "/path/to/pyim-personal.txt"))
-;;     (("buffer" . #<buffer  *Chinese-pyim*-431862>) ("file" . "/path/to/pyim-bigdict.txt"))
-;;     (("buffer" . #<buffer  *Chinese-pyim*-208698>) ("file" . "/path/to/chinese-pyim-prettydict-2.txt"))
-;;     (("buffer" . #<buffer  *Chinese-pyim*-810662>) ("file" . "/path/to/chinese-pyim-prettydict-1.txt")))
+;;    ((("buffer" . " *Chinese-pyim*") ("file" . "/path/to/pyim-personal.txt"))
+;;     (("buffer" . " *Chinese-pyim*-431862") ("file" . "/path/to/pyim-bigdict.txt"))
+;;     (("buffer" . " *Chinese-pyim*-208698") ("file" . "/path/to/chinese-pyim-prettydict-2.txt"))
+;;     (("buffer" . " *Chinese-pyim*-810662") ("file" . "/path/to/chinese-pyim-prettydict-1.txt")))
 ;;    #+END_EXAMPLE
 ;; 5. 函数执行结束后，返回值为上述对应表。
 
@@ -570,13 +692,16 @@ If you don't like this funciton, set the variable to nil")
 
 ;;;  read file functions
 (defun pyim-load-file ()
-  "为每一个词库文件创建一个buffer(这些buffer用户不可见)，然后将各个词库文件的内容插入
-与之对应的buffer。最后返回一个包含所有buffer对象以及词库文件名的alist。
+  "为每一个词库文件创建一个buffer(这些buffer用户不可见)，然后将各个词库
+文件的内容插入与之对应的buffer。最后返回一个包含所有buffer对象以及词库
+文件名的alist。
 
-`pyim-personal-file' 文件最先导入。然后按照先后顺序导入 `pyim-dicts' 中定义的词库
-排在最前面的词库首先被加载，相同的词库文件只加载一次。"
+`pyim-personal-file' 文件最先导入。然后按照先后顺序导入 `pyim-dicts'
+和 `pyim-extra-dicts' 中定义的词库，排在最前面的词库首先被加载，相同的
+词库文件只加载一次。"
   (let ((personal-file (expand-file-name pyim-personal-file))
-        (dicts-list pyim-dicts)
+        (property-file (expand-file-name pyim-property-file))
+        (dicts-list `(,@pyim-dicts ,@pyim-extra-dicts))
         (bufname pyim-buffer-name)
         buflist buf file coding disable dict-type)
     (save-excursion
@@ -584,8 +709,14 @@ If you don't like this funciton, set the variable to nil")
         ;; 如果 `pyim-personal-file' 对应的文件不存在，
         ;; 创建一个模版文件。
         (pyim-create-template-dict personal-file))
-      (setq buf (pyim-read-file personal-file bufname))
+      (unless (file-exists-p property-file)
+        (pyim-create-template-dict property-file))
+
+      (setq buf (pyim-read-file personal-file bufname nil 'personal-file))
       (setq buflist (append buflist (list buf)))
+      (setq buf (pyim-read-file property-file bufname nil 'property-file))
+      (setq buflist (append buflist (list buf)))
+
       (if dicts-list
           (dolist (dict dicts-list)
             (setq file (expand-file-name (plist-get dict :file)))
@@ -608,40 +739,167 @@ If you don't like this funciton, set the variable to nil")
            buflist))
 
 (defun pyim-read-file (file name &optional coding dict-type)
-  (with-current-buffer (generate-new-buffer name)
-    (if coding
-        (let ((coding-system-for-read coding))
+  (if (and (equal (file-name-extension file) "gz")
+           (not (executable-find "gzip")))
+      (message "Can't find gzip command to decompress dict file: %s.
+you need to install gzip (http://www.gzip.org/) and make sure system PATH set properly." file)
+    (with-current-buffer (generate-new-buffer name)
+      (if coding
+          (let ((coding-system-for-read coding))
+            (insert-file-contents file))
+        (insert-file-contents file))
+      `(("buffer" . ,(buffer-name))
+        ("file" . ,file)
+        ("coding" . ,coding)
+        ("dict-type" . ,dict-type)))))
+
+(defun pyim-dict-cache-create (&optional force)
+  (interactive)
+  (when (or force (not pyim-dict-cache-create-p))
+    (setq pyim-dict-cache-create-p t)
+    (let ((cache-directory pyim-cache-directory)
+          (sleep-time 1))
+      (dolist (item pyim-buffer-list)
+        (async-start
+         `(lambda ()
+            (sleep-for ,sleep-time)
+            ,(async-inject-variables "^load-path$")
+            (require 'chinese-pyim-core)
+            (pyim-generate-dict-cache-file
+             (quote ,item) ,cache-directory))
+         `(lambda (result)
+            (pyim-load-dict-cache-file
+             (quote ,item) ,cache-directory t)))
+        (setq sleep-time (+ sleep-time 1))))))
+
+(defun pyim-return-dict-cache-filename (dict-file cache-directory)
+  "返回词库文件 `dict-file' 对应的 cache 文件。"
+  (concat (file-name-as-directory cache-directory)
+          "v5/"
+          ;; Deal with .pyim and pyim.gz
+          (file-name-base (file-name-base dict-file))
+          "/"
+          (md5 dict-file)
+          ".el"))
+
+(defun pyim-load-dict-cache-file (item cache-directory &optional erase-buffer)
+  "加载 `item' 对应的 cache file.
+`item' 是 `pyim-buffer-list' 的任意一个子列表."
+  (let* ((buffer (cdr (assoc "buffer" item)))
+         (file (cdr (assoc "file" item)))
+         (cache-file (pyim-return-dict-cache-filename file cache-directory)))
+    (with-current-buffer buffer
+      (when (file-exists-p cache-file)
+        (setq pyim-dict-cache
+              (with-temp-buffer
+                (insert-file-contents cache-file)
+                (eval (read (current-buffer)))))
+        (when erase-buffer
+          ;; 当词库缓存创建后，词库 buffer 也就没有多大的用处了，
+          ;; 清理后可以降低内存的消耗。
+          (erase-buffer)
+          (goto-char (point-min))
+          (insert (concat ";; `pyim-dict-cache' has been created by `pyim-load-dict-cache-file', "
+                          "the buffer content is useless, clean it.")))))))
+
+(defun pyim-generate-dict-cache-file (item cache-directory)
+  "根据 `item' 创建对应的 cache file.
+`item' 是 `pyim-buffer-list' 的任意一个子列表。"
+  (let* ((file (cdr (assoc "file" item)))
+         (coding (cdr (assoc "coding" item)))
+         (dict-type (cdr (assoc "dict-type" item)))
+         (cache-file (pyim-return-dict-cache-filename file cache-directory))
+         (return-plist (if (eq dict-type 'property-file) t nil))
+         (hastable (make-hash-table :size 1000000 :test #'equal)))
+    (when (or (not (file-exists-p cache-file))
+              (file-newer-than-file-p file cache-file))
+      (with-temp-buffer
+        (if coding
+            (let ((coding-system-for-read coding))
+              (insert-file-contents file))
           (insert-file-contents file))
-      (insert-file-contents file))
-    `(("buffer" . ,(current-buffer))
-      ("file" . ,file)
-      ("dict-type" . ,dict-type))))
+        (goto-char (point-min))
+        (forward-line 1)
+        (while (not (eobp))
+          (let ((code (pyim-code-at-point t))
+                (content (pyim-line-content nil return-plist)))
+            (when (and code content)
+              (if return-plist
+                  (puthash code content hastable)
+                (puthash
+                 code (delete-dups `(,@content ,@(gethash code hastable)))
+                 hastable))))
+          (forward-line 1)))
+      (with-temp-buffer
+        (insert ";; Auto generated by `pyim-generate-dict-cache-file', don't edit it by hand!\n\n")
+        (insert (prin1-to-string hastable))
+        (make-directory (file-name-directory cache-file) t)
+        (write-file cache-file)))))
 ;; #+END_SRC
 
 ;; 当使用 `pyim-start' 或者 `pyim-restart' 命令激活  Chinese-pyim 时，上述对应表保存到变量 `pyim-buffer-list'。
 ;; 供 Chinese-pyim 后续使用。
 
-;; `pyim-buffer-list' 包含的第一个buffer，永远对应着个人词频文件，Chinese-pyim 使用 `pyim-save-personal-file'
+;; `pyim-buffer-list' 包含的第一个buffer，永远对应着个人词频文件，Chinese-pyim 使用 `pyim-save-files'
 ;; 将 `pyim-buffer-list' 第一个 buffer 的内容保存到个人词频文件，这个命令用于更新个人词频文件。
 ;; <<save-personal-file>>
 
 ;; #+BEGIN_SRC emacs-lisp
-(defun pyim-save-personal-file ()
-  "与 `pyim-personal-file' 文件对应的buffer在 `Chinese-pyim' 使用期间不断更新。
-这个函数将更新后的内容保存到`pyim-personal-file' 文件中，
+(defun pyim-save-files ()
+  "将下面几个文件更新后内容保存。
+
+1. `pyim-personal-file'
+2. `pyim-property-file'
+
+3. `pyim-personal-file' 的缓存文件
+4. `pyim-property-file' 的缓存文件
 
 这个函数默认作为`kill-emacs-hook'使用。"
   (interactive)
-  (let* ((element (car pyim-buffer-list))
-         (buffer (cdr (assoc "buffer" element)))
-         (file (cdr (assoc "file" element))))
-    (when (buffer-live-p buffer)
-      (with-current-buffer buffer
-        (save-restriction
-          (if (file-exists-p file)
-              (progn (write-region (point-min) (point-max) file)
-                     (message "更新 Chinese-pyim 文件：%s。" file))
-            (message "Chinese-pyim 文件：%s 不存在。" file)))))))
+  (let ((items (pyim-subseq pyim-buffer-list 0 2)))
+    (dolist (item items)
+      (pyim-generate-dict-file item)
+      (pyim-generate-dict-cache-file item pyim-cache-directory))))
+
+(defun pyim-generate-dict-file (item)
+  "根据 `item' 更新对应的 dict 文件.
+`item' 是 `pyim-buffer-list' 的任意一个子列表。"
+  (let* ((buffer (cdr (assoc "buffer" item)))
+         (file (cdr (assoc "file" item)))
+         (coding (cdr (assoc "coding" item)))
+         (dict-type (cdr (assoc "dict-type" item))))
+    (if (get-buffer buffer)
+        (with-current-buffer buffer
+          (if (and (boundp 'pyim-dict-cache)
+                   (hash-table-p pyim-dict-cache))
+              (save-restriction
+                (erase-buffer)
+                (goto-char (point-min))
+                (insert ";; -*- coding: utf-8 -*-\n")
+                (maphash
+                 #'(lambda (key value)
+                     (insert (mapconcat
+                              #'(lambda (x)
+                                  (format "%s" x)) `(,key ,@value) " "))
+                     (insert "\n"))
+                 pyim-dict-cache)
+                (write-region (point-min) (point-max) file)
+                (message "更新 Chinese-pyim 文件：%s。" file))
+            (message "buffer 变量 `pyim-dict-cache' 无效，个人文件更新失败！"))))))
+
+(defun pyim-filter-buffer-list (dict-types)
+  "从 `pyim-buffer-list' 中挑选符合的 buffer."
+  (delq nil
+        (mapcar
+         #'(lambda (buf)
+             (when (member (cdr (assoc "dict-type" buf)) dict-types)
+               buf))
+         pyim-buffer-list)))
+
+(defun pyim-get-buffer (dict-type &optional n)
+  "获取词库类型为 `dict-type' 的第 N 个 buffer, 并返回。
+N 从 0 开始计数。"
+  (cdar (nth (or n 0) (pyim-filter-buffer-list (list dict-type)))))
 
 ;; #+END_SRC
 
@@ -659,13 +917,13 @@ If you don't like this funciton, set the variable to nil")
         (bufname pyim-buffer-name)
         buffer file)
     (dolist (buf buflist)
-      (setq buffer (assoc "buffer" buf))
+      (setq buffer (cdr (assoc "buffer" buf)))
       (setq file (cdr (assoc "file" buf)))
-      (unless (buffer-live-p (cdr buffer))
+      (unless (get-buffer buffer)
         (if (file-exists-p file)
             (with-current-buffer (generate-new-buffer bufname)
               (insert-file-contents file)
-              (setcdr buffer (current-buffer)))
+              (setcdr buffer (buffer-name)))
           (message "%s for %s is not exists!" file bufname)
           (setq buflist (remove buf buflist)))))
     t))
@@ -676,7 +934,7 @@ If you don't like this funciton, set the variable to nil")
         buffer)
     (dolist (buf buflist)
       (setq buffer (cdr (assoc "buffer" buf)))
-      (when (buffer-live-p buffer)
+      (when (get-buffer buffer)
         (kill-buffer buffer)))))
 ;; #+END_SRC
 
@@ -700,224 +958,47 @@ If you don't like this funciton, set the variable to nil")
 ;; BUG: 这个函数需要进一步优化，使其判断更准确。
 
 ;; #+BEGIN_SRC emacs-lisp
-(defun pyim-get (code &optional search-from-guessdict ignore-personal-buffer)
-  (let ((persional-file-buffer (car pyim-buffer-list))
-        (other-buffer-list (cdr pyim-buffer-list))
-        (search-dicts-buffer-p t) ;用来决定是否需要搜索词库 buffer
-        words nearby-codes-positions buffer-list)
-    (when (and (stringp code) (string< "" code))
-      (when pyim-buffer-cache-list
-        ;; 直接从 buffer cache 中查询词条，速度很快。
-        (dolist (buf-cache pyim-buffer-cache-list)
-          (setq words
-                (append words
-                        (car (gethash code
-                                      (cdr (assoc "buffer-cache" buf-cache)))))))
-
-        ;; 如果用户将所有的个人词库都缓存了，即使找不到词条，
-        ;; 也没有必要继续搜索词库 buffer 了。
-        (when (eq (cdr (assoc "buffer-cache-mode"
-                              (car pyim-buffer-cache-list))) 'full)
-          (setq search-dicts-buffer-p nil))
-
-        ;; 如果从缓存中找不到 code 对应的词条，则获取 code 所在的范围，
-        ;; 比如： 如果搜索 ni-hao, 那么，搜索 n 和 o 两个 code 在 buffer
-        ;; 中的位置，这两个 code 的位置可以减少后面搜索词库 buffer 花费的时间。
-        (when search-dicts-buffer-p
-          (dolist (buf-cache pyim-buffer-cache-list)
-            (unless words
-              (let* ((begin (string-to-char (substring code 0 1)))
-                     (end (1+ begin))
-                     (words-ht  (cdr (assoc "buffer-cache" buf-cache))))
-                (push `(,(cdr (assoc "buffer" buf-cache))
-                        ,(cadr (gethash (string begin) words-ht))
-                        ,(cadr (gethash (string end) words-ht)))
-                      nearby-codes-positions))))))
-
-      ;; 直接用二分法搜索 *普通词库* buffer（速度比较慢）。
-      (when (and (not words) search-dicts-buffer-p)
-        (dolist (buf other-buffer-list)
-          (let ((dict-type (cdr (assoc "dict-type" buf))))
-            ;; Search from dict
-            (when (and (not search-from-guessdict)
-                       (or (null dict-type)
-                           (eq dict-type 'pinyin-dict)))
-              (push buf buffer-list))
-            ;; Search from guessdict
-            (when (and search-from-guessdict
-                       (eq dict-type 'guess-dict))
-              (push buf buffer-list))))
-        (setq buffer-list (reverse buffer-list))
-        (dolist (buf buffer-list)
-          (let* ((buffer (cdr (assoc "buffer" buf)))
-                 (positions (cdr (assoc buffer nearby-codes-positions)))
-                 (point1 (car positions)) ;从缓存中获取的上界限
-                 (point2 (cadr positions))) ;从缓存中获取的下界限
-            (with-current-buffer buffer
-              (if (pyim-dict-buffer-valid-p)
-                  (setq words (append words
-                                      (cdr
-                                       (pyim-bisearch-word code
-                                                           (or point1 (point-min))
-                                                           (or point2 (point-max))))))
-                (message "%s 可能不是一个有效的词库 buffer，忽略。" (buffer-name)))))))
-
-      (when (not (or search-from-guessdict
-                     ignore-personal-buffer))
-        ;; 设置 `ignore-personal-buffer' 为 t 时，用于多音字校正。
-        ;; pyim-buffer-list 中第一个 buffer 对应的是个人词库文件
-        ;; 个人词库文件中的词条极有可能存在 *多音字污染*。
-        ;; 不适合用于多音字校正，这是由 Chinese-pyim 保存词条的
-        ;; 机制决定的。
-        (with-current-buffer (cdr (assoc "buffer" persional-file-buffer))
-          (if (pyim-dict-buffer-valid-p)
-              (setq words (append (cdr
-                                   (pyim-bisearch-word code
-                                                       (point-min)
-                                                       (point-max)))
-                                  words))
-            (message "个人词库文件 buffer 存在问题，忽略加载！"))))
-      (delete-dups words))))
-
-(defun pyim-get-codes-in-personal-buffer ()
-  (let ((buffer (cdr (assoc "buffer" (car pyim-buffer-list))))
-        result)
-    (with-current-buffer buffer
-      (goto-char (point-min))
-      (while (not (eobp))
-        (push (pyim-code-at-point) result)
-        (forward-line 1)))
-    ;; 加入26个字母code，用于缩小搜索范围。
-    (setq result
-          (append (mapcar
-                   #'(lambda (x)
-                       (string x))
-                   "abcdefghjklmnopqrstwxyz")
-                  result))
-    (cl-delete-duplicates (nreverse result)
-                          :test #'equal :from-end t)))
-
-(defun pyim-cache-dict-buffer ()
-  "根据个人词库文件中的 codes，来构建普通词库文件的缓存，用于加快查询速度，
-主要用于对访问速度要求高的中文字符串分词功能。"
-  (interactive)
-  (let ((cache-all-codes (yes-or-no-p "请选择缓存模式：[Yes] 缓存所有的词条; [No] 缓存常用的词条;  "))
-        (max-word-length (read-number "缓存词条的最大长度为： ")))
-    ;; 如果 Chinese-pyim 词库没有加载，加载 Chinese-pyim 词库，
-    ;; 确保 pyim-get 可以正常运行。
-    (unless pyim-buffer-list
-      (setq pyim-buffer-list (pyim-load-file)))
-    (message "正在缓存词库，请稍等。。。")
-    (pyim-cache-dict-buffer-internal cache-all-codes max-word-length)
-    (message "词库缓存完成！")))
-
-(defun pyim-cache-dict-buffer-internal (&optional cache-all-codes max-word-length)
-  "构建普通词库文件的缓存，用于加快查询速度，主要用于对访问速度要求高的中文字符串分词功能。
-当 `cache-all-codes' 设置为 t 时，缓存普通词库 buffer 中存在的所有词条，如果设置为 nil， 仅仅
-缓存常用的 codes 对应的词条，常用 codes 从个人文件中提取，具体请参考：`pyim-get-codes-in-personal-buffer'
-`max-word-length' 用来设置缓存词条的最大长度。"
-  (interactive)
-  (let ((all-buffer-list pyim-buffer-list)
-        (codes-used-freq (pyim-get-codes-in-personal-buffer))
-        buffer-cache-mode result)
-    ;; 清空原来的缓存。
-    (setq pyim-buffer-cache-list nil)
-    (dolist (buf all-buffer-list)
-      ;; 这里仅仅 cache 普通词库 buffer，忽略 cache 个人词库文件 buffer 和
-      ;; guessdict 词库 buffer。其主要原因是：
-      ;; 1. 个人词库频繁变动，cache 很快会过期
-      ;; 2. guessdict 词库的查询速度基本可以满足输入法的要求，
-      ;;    不需要 cache。
-      ;; 3. 当对中文字符串分词时，要求极其快速的查询个人词库,
-      ;;    使用缓存可以极大的提高分词速度。
-      (let ((dict-type (cdr (assoc "dict-type" buf)))
-            (buffer (cdr (assoc "buffer" buf))))
-        (when (or (null dict-type)
-                  (eq dict-type 'pinyin-dict))
-          (with-current-buffer buffer
-            (goto-char (point-min))
-            (let ((index-table (make-hash-table :size 50000 :test #'equal)))
-              (when (pyim-dict-buffer-valid-p)
-                (if cache-all-codes
-                    (progn
-                      (while (not (eobp))
-                        (let* ((code (pyim-code-at-point))
-                               (code-length (length (split-string code "-")))
-                               (words (cdr (pyim-line-content))))
-                          (when (<= code-length (or max-word-length 6))
-                            (puthash code
-                                     (list words)
-                                     index-table)))
-                        (forward-line 1))
-                      (setq buffer-cache-mode 'full))
-                  (dolist (code codes-used-freq)
-                    (puthash code
-                             (list (cdr (pyim-bisearch-word code
-                                                            (point-min)
-                                                            (point-max)))
-                                   (point))
-                             index-table))
-                  (setq buffer-cache-mode 'partly))
-                (push `(("buffer" . ,buffer)
-                        ("buffer-cache" . ,index-table)
-                        ("buffer-cache-mode" . ,buffer-cache-mode))
-                      pyim-buffer-cache-list)))))))))
-
-(defun pyim-predict (code &optional search-from-guessdict)
-  "得到 `code' 对应的联想词。"
-  (let ((regexp (pyim-predict-build-regexp code))
-        buffer-list words-list predicted-words)
+(defun pyim-get (code &optional search-from)
+  (let ((search-from (or search-from '(personal-file pinyin-dict)))
+        words buffer-list)
+    ;; 直接用二分法搜索 *普通词库* buffer（速度比较慢）。
     (dolist (buf pyim-buffer-list)
       (let ((dict-type (cdr (assoc "dict-type" buf))))
-        (when (and (not search-from-guessdict)
-                   (or (null dict-type)
-                       (eq dict-type 'pinyin-dict)))
-          (push buf buffer-list))
-        (when (and search-from-guessdict
-                   (eq dict-type 'guess-dict))
+        (when (member dict-type search-from)
           (push buf buffer-list))))
     (setq buffer-list (reverse buffer-list))
-    (when (and (stringp code)
-               (string< "" code)
-               (string-match-p "[a-z]+-[a-z]+" code))
-      (dolist (buf buffer-list)
-        (with-current-buffer (cdr (assoc "buffer" buf))
-          (when (pyim-dict-buffer-valid-p)
-            (pyim-bisearch-word code (point-min) (point-max))
-            (let* ((begin (when (re-search-forward regexp nil t)
-                            (beginning-of-line)
-                            (point)))
-                   ;; 提取20行内容来获取分析联想词，太多的联想词
-                   ;; 用处不大，还会使输入法响应速度减慢(经验数字)。
-                   (end (progn (forward-line 20)
-                               (end-of-line)
-                               (point))))
-              (when begin
-                (setq words-list
-                      (append words-list
-                              (pyim-multiline-content begin end))))))))
-      (dolist (line-words words-list)
-        (when (and (stringp (car line-words))
-                   (string-match-p regexp (car line-words)))
-          (let ((line-words (cdr line-words)))
-            (dolist (word line-words)
-              (when (and (stringp word)
-                         (> (length word) 0))
-                (push word predicted-words))))))
-      (delete-dups (reverse predicted-words)))))
+    (dolist (buf buffer-list)
+      (let ((dict-type (cdr (assoc "dict-type" buf)))
+            (buffer (cdr (assoc "buffer" buf))))
+        (with-current-buffer buffer
+          (setq words
+                `(,@words
+                  ,@(pyim-bisearch-word
+                     code (point-min) (point-max)))))))
+    `(,@words ,@(pyim-pinyin2cchar-get code t t))))
 
-(defun pyim-predict-build-regexp (code)
+(defun pyim-string-match-p (regexp string &optional start)
+  (and (stringp regexp)
+       (stringp string)
+       (string-match-p regexp string start)))
+
+(defun pyim-build-pinyin-regexp (code &optional match-beginning first-equal all-equal)
   "从`code' 构建一个 regexp，用于搜索联想词，
-比如：ni-hao-si-j --> ^ni-hao[a-z]*-si[a-z]*-j[a-z]*"
-  (let ((count 0))
-    (concat "^"
-            (mapconcat
-             #'(lambda (x)
-                 (setq count (+ count 1))
-                 (if (> count 1)
-                     (concat x "[a-z]*")
-                   x))
-             (split-string code "-") "-"))))
+比如：ni-hao-si-j --> ^ni-hao[a-z]*-si[a-z]*-j[a-z]* , when `first-equal' set to `t'
+                  --> ^ni[a-z]*-hao[a-z]*-si[a-z]*-j[a-z]* , when `first-equal' set to `nil'"
+  (when (and code (stringp code))
+    (let ((pylist (split-string code "-"))
+          (count 0))
+      (concat (if match-beginning "^" "")
+              (mapconcat
+               #'(lambda (x)
+                   (setq count (+ count 1))
+                   (if (or (not first-equal) (> count 1))
+                       (if all-equal
+                           x
+                         (concat x "[a-z]*"))
+                     x))
+               pylist "-")))))
 
 (defun pyim-dict-buffer-valid-p ()
   "粗略地确定当前 buffer 是否是一个有效的词库产生的 buffer。
@@ -925,7 +1006,6 @@ If you don't like this funciton, set the variable to nil")
 
 1. buffer 必须多于5行。
 2. buffer 中间一行必须包含空格或者TAB。
-2. buffer 中间一行必须包含中文字符(\\cc)。
 
 BUG: 这个函数需要进一步优化，使其判断更准确。"
   (when (> (count-lines (point-min)
@@ -935,8 +1015,7 @@ BUG: 这个函数需要进一步优化，使其判断更准确。"
             ccode)
         (goto-char mid)
         (beginning-of-line)
-        (and (re-search-forward "[ \t]" (line-end-position) t)
-             (re-search-forward "\\cc" (line-end-position) t))))))
+        (re-search-forward "[ \t]" (line-end-position) t)))))
 ;; #+END_SRC
 
 ;; `pyim-buffer-list' 中每一个 buffer 都使用函数：`pyim-bisearch-word' 来
@@ -950,69 +1029,70 @@ BUG: 这个函数需要进一步优化，使其判断更准确。"
 ;; 5. 这样递归的操作，最终会将光标移动到 buffer 的某一行，这一行中的拼音
 ;;    字符串和待搜索的拼音字符串一致。
 ;; 6. 最后使用 `pyim-line-content' 返回当前行的内容，其结果是一个列表，类
-;;    似：
+;;    似，注意, `pyim-line-content' 的返回值没有包含 code .
 ;;    #+BEGIN_EXAMPLE
-;;    ("ni-hao" "你好" "你号" ...)
+;;    ("你好" "你号" ...)
 ;;    #+END_EXAMPLE
 
 ;; #+BEGIN_SRC emacs-lisp
 (defun pyim-bisearch-word (code start end)
-  (let ((mid (/ (+ start end) 2))
-        ccode)
+  (if pyim-dict-cache
+      (gethash code pyim-dict-cache)
+    (pyim-bisearch-word-internal code start end)))
+
+(defun pyim-bisearch-word-internal (code start end)
+  (let* ((regexp "[ \f\t\n\r\v]+")
+         (mid (/ (+ start end) 2))
+         ccode)
     (goto-char mid)
     (beginning-of-line)
     (setq ccode (pyim-code-at-point))
-    ;;    (message "%d, %d, %d: %s" start mid end ccode)
+    ;; (message "%d, %d, %d: %s" start mid end ccode)
     (if (equal ccode code)
-        (pyim-line-content)
-      (if (> mid start)
-          (if (string< ccode code)
-              (pyim-bisearch-word code mid end)
-            (pyim-bisearch-word code start mid))))))
+        (pyim-line-content regexp)
+      (when (> mid start)
+        (if (string< ccode code)
+            (pyim-bisearch-word-internal code mid end)
+          (pyim-bisearch-word-internal code start mid))))))
 
-(defun pyim-code-at-point ()
-  "Before calling this function, be sure that the point is at the
-beginning of line"
+(defun pyim-code-at-point (&optional ignore-error)
+  "Get code in the current line."
   (save-excursion
-    (if (re-search-forward "[ \t]" (line-end-position) t)
+    (beginning-of-line)
+    (if (re-search-forward "[ \t:]" (line-end-position) t)
         (buffer-substring-no-properties (line-beginning-position) (1- (point)))
-      (error "文件类型错误！%s 的第 %d 行没有词条！" (buffer-name) (line-number-at-pos)))))
+      (unless ignore-error
+        (error "文件类型错误！%s 的第 %d 行没有词条！" (buffer-name) (line-number-at-pos))))))
 
-(defun pyim-line-content (&optional seperaters omit-nulls)
-  "用 SEPERATERS 分解当前行，所有参数传递给 split-string 函数"
+(defun pyim-line-content (&optional seperaters return-plist omit-nulls)
+  "用 SEPERATERS 分解当前行，所有参数传递给 split-string 函数, 如果 return-plist
+设置为 t, 则返回一个 plist 而不是默认的 list."
   (let* ((begin (line-beginning-position))
          (end (line-end-position))
          (end (if (> (- end begin) pyim-line-content-limit)
                   (+ begin pyim-line-content-limit)
                 end))
-         (items (split-string
-                 (buffer-substring-no-properties begin end)
-                 seperaters)))
-    (if omit-nulls
-        (cl-delete-if 'pyim-string-emptyp items)
-      items)))
-
-(defun pyim-multiline-content (begin end &optional seperaters omit-nulls)
-  "将当前 buffer 中，`begin' 到 `end' 之间的内容分解，生成一个 list，
-这个函数用于搜索联想词函数 `pyim-predict' 。"
-  ;;  ni-hao 你好 倪浩         (("ni-hao" "你好" "倪浩")
-  ;;  ni-hao-a 你好啊    -->    ("ni-hao-a" "你好啊")
-  ;;  ni-hao-b 你好吧           ("ni-hao-ba" "你好吧"))
-  (let ((items (split-string
-                (buffer-substring-no-properties
-                 (if (> begin (point-min))
-                     begin
-                   (point-min))
-                 (if (< end (point-max))
-                     end
-                   (point-max))) "\n")))
-    (mapcar
-     #'(lambda (x)
-         (let ((line-items (split-string x (or seperaters " "))))
-           (if omit-nulls
-               (cl-delete-if 'pyim-string-emptyp line-items)
-             line-items)))
-     items)))
+         (items (cdr (split-string
+                      (buffer-substring-no-properties begin end)
+                      seperaters))))
+    (if return-plist
+        (let ((i 0) return)
+          (dolist (item items)
+            (if (= (% i 2) 0)
+                (push (intern item) return)
+              (push
+               ;; 最常用的属性有两种： 1. 字符串 2. 数字
+               ;; 这里将读取的数字字符串转换为真正的数字,
+               (if (equal (number-to-string
+                           (string-to-number item)) item)
+                   (string-to-number item)
+                 item)
+               return))
+            (setq i (1+ i)))
+          (nreverse return))
+      (if omit-nulls
+          (cl-delete-if 'pyim-string-emptyp items)
+        items))))
 
 (defun pyim-string-emptyp (str)
   (not (string< "" str)))
@@ -1024,22 +1104,10 @@ beginning of line"
 ;; *** 保存词条，删除词条以及调整词条位置
 ;; Chinese-pyim 不会更改普通词库文件的内容，只会将运行过程中的词频信息保存到个人词频文件，这个过程
 ;; 分为两步：
-;; 1. 调整个人词频文件对应的 buffer 的内容，这个过程的核心函数是 `pyim-intern-word'。
-;; 2. 将 buffer 的内容保存到个人词频文件，这个使用函数 `pyim-save-personal-file' 完成。
+;; 1. 调整 buffer 变量 `pyim-dict-cache'，这个过程使用宏 `pyim-intern-file' 完成。
+;; 2. 格式化 `pyim-dict-cache'，并将结果保存到对应文件，这个使用函数 `pyim-save-files' 完成。
 
-;; `pyim-intern-word' 的工作原理和 `pyim-get' 类似， 只不过
-;; `pyim-intern-word' 只搜索个人词频文件对应的 buffer ，搜索到结果后做如
-;; 下工作：
-
-;; 1. 获取当前行的信息，并其格式为一个list
-;; 2. 将参数 `word' 对应的词条和上述list合并
-;;    1. 向前追加（用于词频调整功能）
-;;    2. 向后追加（用于造词功能）
-;;    3. 从list中删除word （用于删词功能）
-;; 3. 使用 `pyim-delete-line' 删除当前行
-;; 4. 将合并后的list转换为词库格式后，再写入当前行。
-
-;; 围绕着 `pyim-intern-word'，Chinese-pyim 构建了3类命令：
+;; 围绕着 `pyim-intern-file'，Chinese-pyim 构建了3类命令：
 ;; 1. 将一个中文词条加入个人词频文件（造词功能）
 ;; 2. 将一个中文词条从个人词频文件中删除（删词功能）
 ;; 3. 调整一个中文词条选项的位置（词频调整功能）
@@ -1048,20 +1116,14 @@ beginning of line"
 ;; 1. `pyim-create-or-rearrange-word' 当用户选择了一个词库中不存在的中文词条时，
 ;;    `pyim-select-current' 会调用这个函数来自动造词。其工作流程是：
 ;;     1. 使用 `chinese-hanzi2pinyin' 获取中文词条的拼音。
-;;     2. 然后调用 `pyim-intern-word' 保存词条，多音字重复操作，比如：
-;;
-;;        #+BEGIN_EXAMPLE
-;;        yin-hang 银行
-;;        yin-xing 银行
-;;        #+END_EXAMPLE
-;;
-;;     另外，这个函数也用于 *词频调整*  。
-;;
+;;     2. 然后调用 `pyim-intern-file' 保存词条，多音字重复操作
+;;        另外，这个函数也用于 *词频调整*  。
+
 ;;     BUG：这种处理方式最大的问题是 *无法正确处理* 多音字，从而导致
 ;;     chinese-pyim 个人文件 *不纯洁*  :-)，但不影响使用。Emacs-eim
 ;;     使用的方式不存在这种问题，但其增加了代码的复杂度，并且灵活性太差
 ;;     增加高级功能，比如 “词语联想”，时存在问题。
-;;
+
 ;; 2. `pyim-create-word-at-point' 这个命令会提取光标前 `number' 个中文字
 ;;     符，将其组成字符串后，调用 `pyim-create-word' 将其加入个人词频文件。
 ;; 3. `pyim-create-word-at-point:<NUM>char' 这组命令是
@@ -1069,61 +1131,60 @@ beginning of line"
 
 ;; #+BEGIN_SRC emacs-lisp
 (defun pyim-delete-line ()
-  (delete-region (line-beginning-position) (min (+ (line-end-position) 1)
-                                                (point-max))))
+  (delete-region (line-beginning-position)
+                 (min (+ (line-end-position) 1) (point-max))))
 
-(defun pyim-intern-word (word py &optional append delete)
-  "这个函数用于保存用户词频，将参数拼音 `py' 对应的中文词条 `word'
-保存到 personal-file 对应的 buffer。
-
-当 `append' 设置为 t 时，新词追加到已有词的后面。
-
-当`delete' 设置为 t 时，从上述 buffer 中删除参数拼音 `py' 对应
-的中文词条 `word'。"
-  (let((buf (cdr (assoc "buffer" (car pyim-buffer-list))))
-       words)
-    (with-current-buffer buf
-      (pyim-bisearch-word py (point-min) (point-max))
-      (if (equal (pyim-code-at-point) py)
-          (progn
-            (setq words (pyim-line-content))
-            (if delete
-                (setq words (remove word words))
-              (setq words
-                    (cons (car words)
-                          (delete-dups
-                           (if append
-                               (append (cdr words) (list word))
-                             (append (list word) (cdr words)))))))
-            ;; (message "delete: %s" words))
-            (pyim-delete-line))
-        (forward-line 1)
-        (setq words (list py word)))
-      ;;    (message "insert: %s" words)
-      (when (> (length words) 1)
-        (insert (mapconcat 'identity words " ") "\n")))))
+(defmacro pyim-intern-file (dict-type code &rest body)
+  "用于更新 personal-file 或者 property-file 的宏，
+运行 `body' 并用其返回值覆盖 buffer 变量 `pyim-dict-cache'
+中 `code' 原来的取值，表达式 `bode' 中，可以使用 `orig-value'
+引用 `code' 原来的取值。"
+  (declare (indent 0) (debug t))
+  (let ((buffer (make-symbol "buffer")))
+    `(let ((,buffer (pyim-get-buffer ,dict-type)))
+       (with-current-buffer ,buffer
+         (unwind-protect
+             (when pyim-dict-cache
+               (let ((orig-value (gethash ,code pyim-dict-cache)))
+                 (puthash ,code (or (progn ,@body) orig-value) pyim-dict-cache))))))))
 
 (defun pyim-create-or-rearrange-word (word &optional rearrange-word)
   "将中文词条 `word' 添加拼音后，保存到 personal-file 对应的
-buffer中，当前词条追加到已有词条之后。`pyim-create-or-rearrange-word'会调用
-`pyim-hanzi2pinyin' 来获取中文词条的拼音code。
+buffer中，当前词条追加到已有词条之后。`pyim-create-or-rearrange-word'
+会调用 `pyim-hanzi2pinyin' 来获取中文词条的拼音code。
 
 BUG：无法有效的处理多音字。"
-  (let ((pinyins (pyim-hanzi2pinyin word nil "-" t nil t))) ;使用了多音字校正
-    (mapc #'(lambda (py)
-              (unless (and (stringp py)
-                           (string-match-p "[^ a-z-]" py))
-                ;; 添加词库： ”拼音“ - ”中文词条“
-                (pyim-intern-word word py (not rearrange-word))
-                ;; 添加词库： ”拼音首字母“ - ”中文词条“
-                (pyim-intern-word word
-                                  (mapconcat
-                                   #'(lambda (x)
-                                       (substring x 0 1))
-                                   (split-string py "-")
-                                   "-")
-                                  (not rearrange-word))))
-          pinyins)))
+  (when (> (length word) 0)
+    (let* ((pinyins (pyim-hanzi2pinyin word nil "-" t nil t))) ;使用了多音字校正
+      ;; 记录 word 的其他属性（比如：精确词频），用于词条联想和排序。
+      (when (and (> (length word) 1)
+                 (cl-some #'(lambda (py)
+                              (member word (pyim-get py '(personal-file))))
+                          pinyins))
+        (pyim-intern-file
+          'property-file word
+          (let ((count (or (plist-get orig-value :count) 1)))
+            (plist-put orig-value :count (+ count 1)))))
+
+      (dolist (py pinyins)
+        (unless (pyim-string-match-p "[^ a-z-]" py)
+          ;; 添加词库： ”拼音“ - ”中文词条“
+          (pyim-intern-file
+            'personal-file py
+            (delete-dups
+             (if rearrange-word
+                 `(,word ,@orig-value)
+               `(,@orig-value ,word))))
+          ;; 添加词库： ”拼音首字母“ - ”中文词条“
+          (pyim-intern-file
+            'personal-file
+            (mapconcat #'(lambda (x)
+                           (substring x 0 1))
+                       (split-string py "-") "-")
+            (delete-dups
+             (if rearrange-word
+                 `(,word ,@orig-value)
+               `(,@orig-value ,word)))))))))
 
 (defun pyim-chinese-string-at-point (&optional number)
   "获取光标一个中文字符串，字符数量为：`number'"
@@ -1137,7 +1198,7 @@ BUG：无法有效的处理多音字。"
                     point begin)))
       (when (and (stringp string)
                  (= (length string) number)
-                 (not (string-match-p "\\CC" string)))
+                 (not (pyim-string-match-p "\\CC" string)))
         string))))
 
 (defun pyim-create-word-at-point (&optional number silent)
@@ -1172,11 +1233,35 @@ BUG：无法有效的处理多音字。"
 ;; #+BEGIN_SRC emacs-lisp
 (defun pyim-delete-word (word)
   "将中文词条 `word' 从 personal-file 对应的 buffer 中删除"
-  (mapc (lambda (py)
-          (unless (and (stringp py)
-                       (string-match-p "[^ a-z-]" py))
-            (pyim-intern-word word py nil t)))
-        (pyim-hanzi2pinyin word nil "-" t)))
+  (let* ((pinyins (pyim-hanzi2pinyin word nil "-" t))
+         (pinyins-szm (mapcar
+                       #'(lambda (pinyin)
+                           (mapconcat #'(lambda (x)
+                                          (substring x 0 1))
+                                      (split-string pinyin "-") "-"))
+                       pinyins)))
+    (dolist (pinyin pinyins)
+      (unless (pyim-string-match-p "[^ a-z-]" pinyin)
+        (pyim-intern-file
+          'personal-file pinyin
+          (remove word orig-value))))
+    (dolist (pinyin pinyins-szm)
+      (unless (pyim-string-match-p "[^ a-z-]" pinyin)
+        (pyim-intern-file
+         'personal-file pinyin
+         (remove word orig-value))))))
+
+(defun pyim-create-word-from-selection ()
+  "Add the selected text as a Chinese word into the personal dictionary."
+  (interactive)
+  (when (region-active-p)
+    (let ((string (buffer-substring-no-properties (region-beginning) (region-end))))
+      (if (> (length string) 6)
+          (error "词条太长")
+        (if (not (string-match-p "^\\cc+\\'" string))
+            (error "不是纯中文字符串")
+          (pyim-create-or-rearrange-word string)
+          (message "将词条: \"%s\" 插入 personal file。" string))))))
 
 (defun pyim-delete-word-from-personal-buffer ()
   "将高亮选择的字符从 personel-file 对应的 buffer 中删除。"
@@ -1234,18 +1319,20 @@ BUG：无法有效的处理多音字。"
 ;; 最后，emacs 低层函数 read-event 将这个 list 插入 *待输入buffer* 。
 
 ;; #+BEGIN_SRC emacs-lisp
-(defun pyim-input-method (key)
+(defun pyim-input-method (key-or-string)
   (if (or buffer-read-only
           overriding-terminal-local-map
           overriding-local-map)
-      (list key)
-    ;; (message "call with key: %c" key)
+      (if (characterp key-or-string)
+          (list key-or-string)
+        (mapcar 'identity key-or-string))
+    ;; (message "call with key: %S" key-or-string)
     (pyim-setup-overlays)
     (with-silent-modifications
       (unwind-protect
-          (let ((input-string (pyim-start-translation key)))
+          (let ((input-string (pyim-start-translation key-or-string)))
             ;; (message "input-string: %s" input-string)
-            (setq pyim-guidance-str "")
+            (setq pyim-guidance-list nil)
             (when (and (stringp input-string)
                        (> (length input-string) 0))
               (if input-method-exit-on-first-char
@@ -1253,12 +1340,14 @@ BUG：无法有效的处理多音字。"
                 (mapcar 'identity input-string))))
         (pyim-delete-overlays)))))
 
-(defun pyim-start-translation (key)
+(defun pyim-start-translation (key-or-string)
   "Start translation of the typed character KEY by Chinese-pyim.
 Return the input string."
   ;; Check the possibility of translating KEY.
   ;; If KEY is nil, we can anyway start translation.
-  (if (or (integerp key) (null key))
+  (if (or (integerp key-or-string)
+          (stringp key-or-string)
+          (null key-or-string))
       ;; OK, we can start translation.
       (let* ((echo-keystrokes 0)
              (help-char nil)
@@ -1266,24 +1355,31 @@ Return the input string."
              (generated-events nil)
              (input-method-function nil)
              (modified-p (buffer-modified-p))
-             last-command-event last-command this-command)
+             key str last-command-event last-command this-command)
+
+        (if (integerp key-or-string)
+            (setq key key-or-string)
+          (setq key (string-to-char (substring key-or-string -1)))
+          (setq str (substring key-or-string 0 -1)))
+
         (setq pyim-current-str ""
-              pyim-current-key ""
+              pyim-current-key (or str "")
               pyim-translating t)
-        (if key
-            (setq unread-command-events
-                  (cons key unread-command-events)))
+
+        (when key
+          (setq unread-command-events
+                (cons key unread-command-events)))
+
         (while pyim-translating
           (set-buffer-modified-p modified-p)
-          (let* ((prompt (if input-method-use-echo-area
-                             (format "%s%s %s"
-                                     (or input-method-previous-message "")
-                                     pyim-current-key
-                                     pyim-guidance-str)))
+          (let* ((prompt (when input-method-use-echo-area
+                           (format "[%s]: %s"
+                                   (replace-regexp-in-string "-" "" pyim-current-key)
+                                   (plist-get pyim-guidance-list :words))))
                  (keyseq (read-key-sequence prompt nil nil t))
                  (cmd (lookup-key pyim-mode-map keyseq)))
-            ;;             (message "key: %s, cmd:%s\nlcmd: %s, lcmdv: %s, tcmd: %s"
-            ;;                      key cmd last-command last-command-event this-command)
+            ;; (message "key: %s, cmd:%s\nlcmd: %s, lcmdv: %s, tcmd: %s"
+            ;;          key cmd last-command last-command-event this-command)
             (if (if key
                     (commandp cmd)
                   (eq cmd 'pyim-self-insert-command))
@@ -1293,91 +1389,53 @@ Return the input string."
                         last-command this-command
                         this-command cmd)
                   (setq key t)
-                  (condition-case err
+                  (condition-case-unless-debug err
                       (call-interactively cmd)
-                    (error (message "%s" (cdr err)) (beep))))
+                    (error (message "Chinese-pyim 出现错误: %s , 开启 debug-on-error 后可以了解详细情况。"
+                                    (cdr err)) (beep))))
               ;; KEYSEQ is not defined in the translation keymap.
               ;; Let's return the event(s) to the caller.
               (setq unread-command-events
                     (string-to-list (this-single-command-raw-keys)))
               ;; (message "unread-command-events: %s" unread-command-events)
               (pyim-terminate-translation))))
-        ;;    (1message "return: %s" pyim-current-str)
+        ;; (message "return: %s" pyim-current-str)
         pyim-current-str)
     ;; Since KEY doesn't start any translation, just return it.
     ;; But translate KEY if necessary.
-    (char-to-string key)))
+    (char-to-string key-or-string)))
+
+(defun pyim-auto-switch-english-input-p ()
+  "判断是否 *根据环境自动切换* 为英文输入模式，这个函数处理变量：
+`pyim-english-input-switch-functions'"
+  (let* ((func-or-list pyim-english-input-switch-functions))
+    (and (cl-some #'(lambda (x)
+                      (if (functionp x)
+                          (funcall x)
+                        nil))
+                  (cond ((functionp func-or-list) (list func-or-list))
+                        ((listp func-or-list) func-or-list)
+                        (t nil)))
+         (setq current-input-method-title
+               (concat pyim-title
+                       (if pyim-input-ascii
+                           "-英文"
+                         "-AU英"))))))
 
 (defun pyim-input-chinese-p ()
   "确定 Chinese-pyim 是否启动中文输入模式"
-  (and (not pyim-input-ascii)
-       (if (functionp pyim-english-input-switch-function)
-           (not (funcall pyim-english-input-switch-function)) t)
-       (if (pyim-string-emptyp pyim-current-key)
+  (let* ((pinyin-scheme-name pyim-default-pinyin-scheme)
+         (first-chars (pyim-get-pinyin-scheme-option pinyin-scheme-name :first-chars))
+         (rest-chars (pyim-get-pinyin-scheme-option pinyin-scheme-name :rest-chars)))
+    (and (or pyim-force-input-chinese
+             (and (not pyim-input-ascii)
+                  (not (pyim-auto-switch-english-input-p))))
+         (if (pyim-string-emptyp pyim-current-key)
+             (member last-command-event
+                     (mapcar 'identity first-chars))
            (member last-command-event
-                   (mapcar 'identity "abcdefghjklmnopqrstwxyz"))
-         (member last-command-event
-                 (mapcar 'identity "vmpfwckzyjqdltxuognbhsrei'-a")))))
-
-(defun pyim-dynamic-english-input-function ()
-  "中英文输入动态切换函数，其基本规则是：
-
-1. 当前字符为英文字符时，输入下一个字符时默认开启英文输入
-2. 当前字符为中文字符时，输入下一个字符时默认开启中文输入
-3. 当前字符为中文字符时，输入1个空格后，仍然输入中文
-4. 当前字符为英文字符时，输入1个空格后，仍然输入英文
-5. 当前字符为中文字符时，输入2个空格后，切换到英文输入
-6. 当前字符为英文字符时，输入2个空格后，切换到中文输入
-
-这个函数的使用方法请参考 `pyim-english-input-switch-function'
-的相关帮助。"
-  (let ((str-before-1 (pyim-char-before-to-string 0))
-        (str-before-2 (pyim-char-before-to-string 1))
-        (str-before-3 (pyim-char-before-to-string 2))
-        (str-before-4 (pyim-char-before-to-string 3))
-        (regexp-chinese "\\cc")
-        (regexp-alpha "[a-zA-Z]")
-        ;; ascii puncts: !\"#$%&'()*+,-./:;<=>?@\^_`{|}~
-        ;; NOTE: "-" must put the end of [].
-        (regexp-punct "[@`+=_~&-]"))
-    (cond ((and (stringp str-before-1)
-                (stringp str-before-2)
-                (stringp str-before-3)
-                (equal str-before-1 " ")
-                (equal str-before-2 " ")
-                (string-match-p regexp-chinese str-before-3))
-           (pyim-toggle-full-width-punctuation -1 t) ;; 使用半角标点
-           t)
-          ((and (stringp str-before-1)
-                (stringp str-before-2)
-                (stringp str-before-3)
-                (equal str-before-1 " ")
-                (equal str-before-2 " ")
-                (string-match-p regexp-alpha str-before-3))
-           (pyim-toggle-full-width-punctuation 1 t) ;; 使用全角标点
-           nil)
-          ((and (stringp str-before-1)
-                (stringp str-before-2)
-                (equal str-before-1 " ")
-                (string-match-p regexp-chinese str-before-2))
-           (pyim-toggle-full-width-punctuation 1 t) ;; 使用全角标点
-           nil)
-          ((and (stringp str-before-1)
-                (stringp str-before-2)
-                (equal str-before-1 " ")
-                (string-match-p regexp-alpha str-before-2))
-           (pyim-toggle-full-width-punctuation -1 t) ;; 使用半角标点
-           t)
-          ((and (stringp str-before-1)
-                (or (string-match-p regexp-alpha str-before-1)
-                    (string-match-p regexp-punct str-before-1))
-                (= (length pyim-guidance-str) 0))
-           (pyim-toggle-full-width-punctuation -1 t) ;; 使用半角标点
-           t)
-          ((and (stringp str-before-1)
-                (string-match-p regexp-chinese str-before-1))
-           (pyim-toggle-full-width-punctuation 1 t)  ;; 使用全角标点
-           nil))))
+                   (mapcar 'identity rest-chars)))
+         (setq current-input-method-title pyim-title))))
 
 (defun pyim-self-insert-command ()
   "如果在 pyim-first-char 列表中，则查找相应的词条，否则停止转换，插入对应的字符"
@@ -1395,8 +1453,9 @@ Return the input string."
   (setq pyim-translating nil)
   (pyim-delete-region)
   (setq pyim-current-choices nil)
-  (setq pyim-guidance-str "")
-  (when (pyim-use-tooltip-p)
+  (setq pyim-guidance-list nil)
+  (when (and (eq pyim-use-tooltip 'pos-tip)
+             (pyim-tooltip-pos-tip-usable-p))
     (pos-tip-hide)))
 ;; #+END_SRC
 
@@ -1429,11 +1488,11 @@ Return the input string."
 ;; Chinese-pyim 使用函数 `pyim-split-string' 将拼音字符串分解为一个由声母和韵母组成的拼音列表，比如：
 
 ;; #+BEGIN_EXAMPLE
-;; (pyim-split-string "woaimeinv")
+;; (pyim-split-string "woaimeinv" 'default)
 ;; #+END_EXAMPLE
 
 ;; 结果为:
-;; : (("w" . "o") ("" . "ai") ("m" . "ei") ("n" . "v"))
+;; : ((("w" . "o") ("" . "ai") ("m" . "ei") ("n" . "v")))
 
 ;; 这个过程通过递归的调用 `pyim-get-charpy' 来实现，整个过程类似用菜刀切黄瓜片，将一个拼音字符串逐渐切开。比如：
 
@@ -1474,18 +1533,18 @@ Return the input string."
 ;; 当用户输入一个错误的拼音时，`pyim-split-string' 会产生一个声母为空而韵母又不正确的拼音列表 ，比如：
 
 ;; #+BEGIN_EXAMPLE
-;; (pyim-split-string "ua")
+;; (pyim-split-string "ua" 'default)
 ;; #+END_EXAMPLE
 
 ;; 结果为:
-;; : (("" . "ua"))
+;; : ((("" . "ua")))
 
 ;; 这种错误可以使用函数 `pyim-validp' 来检测。
 ;; #+BEGIN_EXAMPLE
-;; (list (pyim-validp (pyim-split-string "ua"))
-;;       (pyim-validp (pyim-split-string "a"))
-;;       (pyim-validp (pyim-split-string "wa"))
-;;       (pyim-validp (pyim-split-string "wua")))
+;; (list (pyim-validp (car (pyim-split-string "ua" 'default)))
+;;       (pyim-validp (car (pyim-split-string "a" 'default)))
+;;       (pyim-validp (car (pyim-split-string "wa" 'default)))
+;;       (pyim-validp (car (pyim-split-string "wua" 'default))))
 ;; #+END_EXAMPLE
 
 ;; 结果为:
@@ -1496,7 +1555,7 @@ Return the input string."
 ;; 字符串用于搜索词条。
 
 ;; #+BEGIN_EXAMPLE
-;; (pyim-pylist-to-string '(("w" . "o") ("" . "ai") ("m" . "ei") ("n" . "v")))
+;; (pyim-pylist-to-string '(("w" . "o") ("" . "ai") ("m" . "ei") ("n" . "v")) nil 'default)
 ;; #+END_EXAMPLE
 
 ;; 结果为:
@@ -1537,7 +1596,10 @@ Return the input string."
       (if (and (string< "" py)
                (not (member (substring py 0 1) pyim-shen-mu))
                (member (substring yunmu -1) pyim-shen-mu)
-               (member (substring yunmu 0 -1) pyim-yun-mu))
+               (member (substring yunmu 0 -1) pyim-yun-mu)
+               (not (and (member (substring yunmu -1) '("n" "g"))
+                         (or (string= (substring py 0 1) "o")
+                             (string= (substring py 0 (min (length py) 2)) "er")))))
           (setq py (concat (substring yunmu -1) py)
                 yunmu (substring yunmu 0 -1)))
       (cons yunmu py))))
@@ -1547,27 +1609,115 @@ Return the input string."
   (when (and py (string< "" py))
     (let* ((sm (pyim-get-sm py))
            (ym (pyim-get-ym (cdr sm)))
-           (chpy (concat (car sm) (car ym))))
-      (if (or (null ym)                 ; 如果韵母为空
-              (and (string< "" (car ym)) (not (pyim-get chpy)))) ; 错误的拼音
+           (charpys (mapcar #'(lambda (x)
+                                (concat (car x) (cdr x)))
+                            (pyim-find-fuzzy-pinyins
+                             (cons (car sm) (car ym))))))
+      (if (or (null ym) ;如果韵母为空
+              (and (string< "" (car ym))
+                   (not (cl-some
+                         #'(lambda (charpy)
+                             (or (pyim-pinyin2cchar-get charpy t)
+                                 (pyim-get charpy)))
+                         charpys))  ;错误的拼音
+                   ))
           (cons sm "")
         (cons (cons (car sm) (car ym)) (cdr ym))))))
 
 ;;; 处理输入的拼音
-(defun pyim-split-string (py)
+(defun pyim-get-pinyin-scheme (pinyin-scheme-name)
+  "获取名称为 `pinyin-scheme-name' 的拼音方案。"
+  (assoc pinyin-scheme-name pyim-pinyin-schemes))
+
+(defun pyim-get-pinyin-scheme-option (pinyin-scheme-name option)
+  "获取名称为 `pinyin-scheme-name' 的拼音方案，并提取其属性 `option' 。"
+  (let ((pinyin-scheme (pyim-get-pinyin-scheme pinyin-scheme-name)))
+    (when pinyin-scheme
+      (plist-get (cdr pinyin-scheme) option))))
+
+(defun pyim-split-string (str &optional pinyin-scheme-name)
+  "按照 `pinyin-scheme-name' 对应的拼音方案，把一个全拼或者双拼字符串分解为 *一个或者多个* pylist,
+返回所有 pylist 的组成的一个 *列表* 。
+
+注：1, 每一个 pylist 都有类似的结构: ((\"n\" . \"i\")(\"h\" . \"ao\"))
+    2. 使用这么复杂的list的原因是为了支持双拼，因为一个双拼字符串有可能转换为多个有效的全拼。
+    3. 变量 `pyim-pinyin-schemes' 保存所有可用的 pinyin-scheme 。"
+  (let ((pinyin-class (pyim-get-pinyin-scheme-option pinyin-scheme-name :class))
+        pylist-list fuzzy-pylist-list result1 result2)
+    (when pinyin-class
+      (setq pylist-list
+            (funcall (intern (concat "pyim-split-string:"
+                                     (symbol-name pinyin-class)))
+                     str pinyin-scheme-name)))
+    ;; Deal with fuzzy pinyins
+    (dolist (pylist pylist-list)
+      (setq fuzzy-pylist-list
+            (pyim-permutate-list
+             (mapcar 'pyim-find-fuzzy-pinyins pylist)))
+      (push (car fuzzy-pylist-list) result1)
+      (setq result2 (append result2 (cdr fuzzy-pylist-list))))
+    (append result1 result2)))
+
+(defun pyim-split-string:quanpin (py &optional pinyin-scheme-name)
   "把一个拼音字符串分解。如果含有 '，优先在这个位置中断，否则，自动分
-解成声母和韵母的组合"
+解成声母和韵母的组合，可选参数 `pinyin-scheme' 只是一个虚参数，暂时没有
+用处。"
   (when (and py (string< "" py))
-    (apply 'append
-           (mapcar (lambda (p)
-                     (let (chpy pylist)
-                       (setq p (replace-regexp-in-string "[ -]" "" p))
-                       (while (when (string< "" p)
-                                (setq chpy (pyim-get-charpy p))
-                                (setq pylist (append pylist (list (car chpy))))
-                                (setq p (cdr chpy))))
-                       pylist))
-                   (split-string py "'")))))
+    (list (apply 'append
+                 (mapcar #'(lambda (p)
+                             (let (chpy pylist)
+                               (setq p (replace-regexp-in-string "[ -]" "" p))
+                               (while (when (string< "" p)
+                                        (setq chpy (pyim-get-charpy p))
+                                        (setq pylist (append pylist (list (car chpy))))
+                                        (setq p (cdr chpy))))
+                               pylist))
+                         (split-string py "'"))))))
+
+;; "nihc" -> (((\"n\" . \"i\") (\"h\" . \"ao\")))
+(defun pyim-split-string:shuangpin (str &optional pinyin-scheme-name)
+  "按照 `pyim-scheme-name' 对应的拼音方案，把一个双拼字符串分解成一个 pylist 组成的列表。"
+  (let ((keymaps-general (pyim-get-pinyin-scheme-option pinyin-scheme-name :keymaps-general))
+        (keymaps-special (pyim-get-pinyin-scheme-option pinyin-scheme-name :keymaps-special))
+        (list (string-to-list
+               (replace-regexp-in-string "-" ""str)))
+        results)
+    (while list
+      (let* ((sp-sm (pop list))
+             (sp-ym (pop list))
+             (sp-sm (when sp-sm (char-to-string sp-sm)))
+             (sp-ym (when sp-ym (char-to-string sp-ym)))
+             (sm (nth 1 (assoc sp-sm keymaps-general)))
+             (ym (cdr (cdr (assoc sp-ym keymaps-general)))))
+        (push (mapcar
+               #'(lambda (x)
+                   (let* ((y (cons sp-sm sp-ym))
+                          (z (car (cdr (assoc y keymaps-special)))))
+                     (or z (cons sm x))))
+               (or ym (list ""))) results)))
+    (pyim-permutate-list (nreverse results))))
+
+(defun pyim-find-fuzzy-pinyins (pycons)
+  "Find all fuzzy pinyins, for example:
+
+(\"f\" . \"en\") -> ((\"f\" . \"en\")(\"f\" . \"eng\"))"
+  (cl-labels ((find-list (str list)
+                         (let (result)
+                           (dolist (x list)
+                             (when (member str x)
+                               (setq list nil)
+                               (setq result
+                                     (delete-dups
+                                      `(,str ,@(cl-copy-list x))))))
+                           (or result (list str)))))
+    (let* ((fuzzy-alist pyim-fuzzy-pinyin-alist)
+           (sm-list (find-list (car pycons) fuzzy-alist))
+           (ym-list (find-list (cdr pycons) fuzzy-alist))
+           result)
+      (dolist (a sm-list)
+        (dolist (b ym-list)
+          (push (cons a b) result)))
+      (reverse result))))
 
 (defun pyim-validp (pylist)
   "检查得到的拼音是否含有声母为空，而韵母又不正确的拼音"
@@ -1606,8 +1756,17 @@ Return the input string."
     (if cur (setq py (concat py "'")))  ; the last char is `''
     py))
 
-(defun pyim-pylist-to-string (pylist &optional shou-zi-mu)
-  "把分解的拼音合并，以便进行查找, 当 `shou-zi-mu' 设置为 t
+(defun pyim-pylist-to-string (pylist &optional shou-zi-mu pinyin-scheme-name)
+  "按照 `pinyin-scheme' 对应的拼音方案，把一个拼音列表合并为一个全拼字符串
+或者双拼字符串，常常用于搜索。"
+  (let ((pinyin-class (pyim-get-pinyin-scheme-option pinyin-scheme-name :class)))
+    (when pinyin-class
+      (funcall (intern (concat "pyim-pylist-to-string:"
+                               (symbol-name pinyin-class)))
+               pylist shou-zi-mu pinyin-scheme-name))))
+
+(defun pyim-pylist-to-string:quanpin (pylist &optional shou-zi-mu pinyin-scheme-name)
+  "把一个拼音列表合并为一个全拼字符串，当 `shou-zi-mu' 设置为 t
 时，生成拼音首字母字符串，比如 p-y。"
   (mapconcat 'identity
              (mapcar
@@ -1618,89 +1777,162 @@ Return the input string."
                       py)))
               pylist)
              "-"))
+
+(defun pyim-pylist-to-string:shuangpin (pylist &optional shou-zi-mu pinyin-scheme-name)
+  "把一个拼音列表合并为一个双拼字符串，当 `shou-zi-mu' 设置为 t 时，
+生成双拼首字母字符串，比如 p-y。"
+  (when pinyin-scheme-name
+    (let* ((keymaps-general (pyim-get-pinyin-scheme-option pinyin-scheme-name :keymaps-general))
+           (keymaps-special (pyim-get-pinyin-scheme-option pinyin-scheme-name :keymaps-special)))
+      (mapconcat 'identity
+                 (mapcar
+                  #'(lambda (w)
+                      (let ((special
+                             (car (rassoc (list w)
+                                          keymaps-special)))
+                            (sm (car w))
+                            (ym (cdr w)))
+                        (if special
+                            (concat (car special) (cdr special))
+                          (concat (cl-some
+                                   #'(lambda (x)
+                                       (when (equal sm (nth 1 x))
+                                         (car x))) keymaps-general)
+                                  (unless shou-zi-mu
+                                    (cl-some
+                                     #'(lambda (x)
+                                         (when (or (equal ym (nth 2 x))
+                                                   (equal ym (nth 3 x)))
+                                           (car x))) keymaps-general))))))
+                  pylist)
+                 "-"))))
 ;; #+END_SRC
 
 ;; **** 获得词语拼音并进一步查询得到备选词列表
 ;; #+BEGIN_SRC emacs-lisp
-(defun pyim-get-choices (pylist)
-  "得到可能的词组和汉字。例如：
+(defun pyim-get-choices (list-of-pylist)
+  "得到可能的词组和汉字。"
+  ;; list-of-pylist 可以包含多个 pylist, 从而得到多个子候选词列表，如何将多个 *子候选词列表* 合理的合并，
+  ;; 是一个比较麻烦的事情的事情。 注：这个地方需要进一步得改进。
+  (let* (personal-words
+         pinyin-dict-words
+         pinyin-shouzimu-similar-words pinyin-znabc-similar-words
+         chars)
 
- (pyim-get-choices  (pyim-split-string \"pin-yin\"))
-  => (\"拼音\" \"拼\" \"品\" \"贫\" \"苹\" \"聘\" \"频\" \"拚\" \"颦\" \"牝\" \"嫔\" \"姘\" \"嚬\")
+    (dolist (pylist list-of-pylist)
+      (setq personal-words
+            (append personal-words
+                    (car (pyim-get-choices:personal-file pylist))))
+      (setq pinyin-dict-words
+            (append pinyin-dict-words
+                    (car (pyim-get-choices:pinyin-dict pylist))))
+      (setq chars
+            (append chars
+                    (car (pyim-get-choices:chars pylist)))))
 
- (pyim-get-choices  (pyim-split-string \"pin-yin\"))
- => (\"拼音\" \"贫铀\" \"聘用\" \"拼\" \"品\" \"贫\" \"苹\" \"聘\" \"频\" \"拚\" \"颦\" \"牝\" \"嫔\" \"姘\" \"嚬\")"
-  (let ((py-str (pyim-pylist-to-string pylist))
-        (py-str-shouzimu (pyim-pylist-to-string pylist t))
-        choice words word guess-words-accurate guess-words-similar
-        words-predicted chars wordspy)
+    ;; Pinyin shouzimu similar words
+    (let ((words (pyim-get-choices:pinyin-shouzimu (car list-of-pylist))))
+      (setq pinyin-shouzimu-similar-words (car (cdr words))))
 
-    ;; 搜索严格匹配输入拼音的词条。
-    (setq words (pyim-get py-str))
+    ;; Pinyin znabc-style similar words
+    (let ((words (pyim-get-choices:pinyin-znabc (car list-of-pylist))))
+      (setq pinyin-znabc-similar-words (car (cdr words))))
 
-    ;; 如果输入 "ni-hao" ，搜索拼音与 "ni-hao" 类似的词条作为联想词。
-    (when (member 'pinyin-similar pyim-enable-words-predict)
-      (push `(pinyin-similar ,@(pyim-predict py-str)) words-predicted))
+    ;; Debug
+    (when pyim-debug
+      (princ (list :pylist-list list-of-pylist
+                   :personal-words personal-words
+                   :pinyin-dict-words pinyin-dict-words
+                   :pinyin-shouzimu-words pinyin-shouzimu-similar-words
+                   :pinyin-znabc-similar-words pinyin-znabc-similar-words
+                   :chars chars)))
 
-    ;; 如果输入 "ni-hao" ，搜索 code 为 "n-h" 的词条做为联想词。
-    (when (member 'pinyin-shouzimu pyim-enable-words-predict)
-      (push `(pinyin-shouzimu ,@(pyim-get py-str-shouzimu)) words-predicted))
+    (delete-dups
+     (delq nil
+           `(,(car personal-words)
+             ,@(pyim-sort-words:count (cdr personal-words))
+             ,@pinyin-dict-words
+             ,@(when (and pinyin-dict-words
+                          (not (member (car pinyin-dict-words) pinyin-shouzimu-similar-words)))
+                 pinyin-shouzimu-similar-words)
+             ,@pinyin-znabc-similar-words
+             ,@chars)))))
 
-    ;; 如果上一次输入词条 "你好" ，那么以 “你好” 为 code，从 guessdict 词库中搜索词条
-    ;; 将搜索得到的词条的拼音与 *当前输入的拼音* 进行比较，类似或者精确匹配的词条作为联想词。
-    (when (member 'guess-words pyim-enable-words-predict)
-      (let ((words (pyim-get pyim-last-input-word t))
-            (count 0))
-        (while words
-          (setq word (pop words))
-          (let ((pinyins (pyim-hanzi2pinyin word nil "-" t)))
-            (when (cl-some
-                   #'(lambda (x)
-                       (and (stringp x)
-                            (string-match-p (pyim-predict-build-regexp py-str) x)))
-                   pinyins)
-              (push word guess-words-similar))
-            (when (cl-some
-                   #'(lambda (x)
-                       (equal py-str x))
-                   pinyins)
-              (push word guess-words-accurate)))
-          ;; 当 `words' 包含的元素太多时，后面处理会极其缓慢，
-          ;; 这里通过限制循环次数来提高输入法的响应。
-          (setq count (1+ count))
-          (when (> count 1000)
-            (setq words nil))))
+(defun pyim-get-choices:pinyin-znabc (pylist)
+  ;; 将输入的拼音按照声母和韵母打散，得到尽可能多的拼音组合，
+  ;; 查询这些拼音组合，得到的词条做为联想词。
+  (when (member 'pinyin-znabc pyim-enable-words-predict)
+    (list nil (pyim-possible-words
+               (pyim-possible-words-py pylist)))))
 
-      (setq guess-words-accurate (reverse guess-words-accurate))
-      ;; 合并到联想词一起处理，这样用户就可以通过 `pyim-enable-words-predict'
-      ;; 来决定哪一类联想词优先显示。
-      (push `(guess-words ,@(reverse guess-words-similar)) words-predicted))
+(defun pyim-get-choices:pinyin-shouzimu (pylist)
+  ;; 如果输入 "ni-hao" ，搜索 code 为 "n-h" 的词条做为联想词。
+  ;; 搜索首字母得到的联想词太多，这里限制联想词要大于两个汉字并且只搜索
+  ;; 个人文件。
+  (let ((py-str-shouzimu (pyim-pylist-to-string pylist t 'default)))
+    (when (and (member 'pinyin-shouzimu pyim-enable-words-predict)
+               (> (length pylist) 1))
+      (list nil (pyim-sort-words:count
+                 (pyim-get py-str-shouzimu '(personal-file)))))))
 
-    ;; 将输入的拼音按照声母和韵母打散，得到尽可能多的拼音组合，
-    ;; 查询这些拼音组合，得到的词条做为联想词。
-    (setq wordspy (pyim-possible-words-py pylist))
-    (when (and wordspy (member 'pinyin-znabc pyim-enable-words-predict))
-      (push `(pinyin-znabc ,@(pyim-possible-words wordspy)) words-predicted))
+(defun pyim-get-choices:personal-file (pylist)
+  (let ((py-str (pyim-pylist-to-string pylist nil 'default)))
+    (list (pyim-get py-str '(personal-file)) nil)))
 
-    ;; 依次搜索每个拼音对应的汉字。
-    (setq chars (pyim-get (concat (caar pylist) (cdar pylist))))
+(defun pyim-get-choices:pinyin-dict (pylist)
+  (let ((py-str (pyim-pylist-to-string pylist nil 'default)))
+    (list (pyim-get py-str '(pinyin-dict)) nil)))
 
-    ;; 将上述搜索得到的词条合并。
-    (setq choice `(,@guess-words-accurate
-                   ,@words
-                   ;; 没有严格匹配的词条时，设置第一个被选词为字符，
-                   ;; 这样可以减少不可预期的联想词带来的视觉压力。
-                   ,@(unless words
-                       (list (car chars)))
-                   ;; 联想词
-                   ,@(pyim-flatten-list
-                      (mapcar
-                       #'(lambda (x)
-                           (cdr (assoc x words-predicted)))
-                       pyim-enable-words-predict))
-                   ;; 汉字字符
-                   ,@chars))
-    (delete-dups (delq nil choice))))
+(defun pyim-get-choices:chars (pylist)
+  (let ((py-str (pyim-pylist-to-string pylist nil 'default)))
+    (list (pyim-get (concat (caar pylist) (cdar pylist)))
+          nil)))
+
+(defun pyim-get-word-property (word property &optional value-converter default-value)
+  "从 `pyim-property-file' 文件中获取 `word' 对应属性 `property' 的取值。"
+  (let* ((value (plist-get (pyim-get word '(property-file)) property))
+         (value-converter (or value-converter #'identity)))
+    (or (when value (funcall value-converter value))
+        default-value)))
+
+(defun pyim-sort-words:count (words-list)
+  "根据 `pyim-property-file' 提供的信息，对 `words-list' 中的词条进行排序。"
+  (sort words-list
+        #'(lambda (a b)
+            (> (pyim-get-word-property a :count nil 1)
+               (pyim-get-word-property b :count nil 1)))))
+
+(defun pyim-build-chinese-regexp-for-pylist (pylist &optional match-beginning
+                                                    first-equal all-equal)
+  "这个函数生成一个 regexp ，用这个 regexp 可以搜索到
+拼音匹配 `pylist' 的中文字符串。"
+  (let* ((pylist (mapcar
+                  #'(lambda (x)
+                      (concat (car x) (cdr x)))
+                  pylist))
+         (cchar-list
+          (let ((n 0) results)
+            (dolist (py pylist)
+              (push
+               (mapconcat #'identity
+                          (pyim-pinyin2cchar-get
+                           py
+                           (or all-equal
+                               (and first-equal
+                                    (= n 0)))) "")
+               results)
+              (setq n (+ 1 n)))
+            (nreverse results)))
+         (regexp
+          (mapconcat
+           #'(lambda (x)
+               (when (pyim-string-match-p "\\cc" x)
+                 (format "[%s]" x)))
+           cchar-list
+           "")))
+    (unless (equal regexp "")
+      (concat (if match-beginning "^" "")
+              regexp))))
 
 (defun pyim-sublist (list start end)
   "Return a section of LIST, from START to END.
@@ -1736,7 +1968,7 @@ Counting starts at 1."
 完整拼音，则给出完整的拼音，如果是给出声母，则为一个 CONS CELL，CAR 是
 拼音，CDR 是拼音列表。例如：
 
- (setq foo-pylist (pyim-split-string \"pin-yin-sh-r\"))
+ (setq foo-pylist (pyim-split-string \"pin-yin-sh-r\" 'default))
   => ((\"p\" . \"in\") (\"y\" . \"in\") (\"sh\" . \"\") (\"r\" . \"\"))
 
  (pyim-possible-words-py foo-pylist)
@@ -1776,17 +2008,18 @@ Counting starts at 1."
 
 ;; #+BEGIN_SRC emacs-lisp
 (defun pyim-handle-string ()
-  (let ((str pyim-current-key)
+  (let ((pinyin-scheme-name pyim-default-pinyin-scheme)
+        (str pyim-current-key)
         userpos wordspy)
-    (setq pyim-pinyin-list (pyim-split-string str)
+    (setq pyim-pylist-list (pyim-split-string str pinyin-scheme-name)
           pyim-pinyin-position 0)
-    (unless (and (pyim-validp pyim-pinyin-list)
+    (unless (and (pyim-validp (car pyim-pylist-list))
                  (progn
                    (setq userpos (pyim-user-divide-pos str)
                          pyim-current-key (pyim-restore-user-divide
-                                           (pyim-pylist-to-string pyim-pinyin-list)
+                                           (pyim-pylist-to-string (car pyim-pylist-list) nil pinyin-scheme-name)
                                            userpos))
-                   (setq pyim-current-choices (list (delete-dups (pyim-get-choices pyim-pinyin-list))))
+                   (setq pyim-current-choices (list (delete-dups (pyim-get-choices pyim-pylist-list))))
                    (when  (car pyim-current-choices)
                      (setq pyim-current-pos 1)
                      (pyim-update-current-str)
@@ -1794,9 +2027,11 @@ Counting starts at 1."
                      (pyim-show)
                      t)))
       (setq pyim-current-str (replace-regexp-in-string "-" "" pyim-current-key))
-      (setq pyim-guidance-str (format "%s"
-                                      (replace-regexp-in-string
-                                       "-" " " pyim-current-key)))
+      (setq pyim-guidance-list
+            (plist-put pyim-guidance-list
+                       :words
+                       (format "%s" (replace-regexp-in-string
+                                     "-" " " pyim-current-key))))
       (pyim-show))))
 
 ;; #+END_SRC
@@ -1838,7 +2073,7 @@ Counting starts at 1."
                                    (pyim-choice (nth pos choices)))
           rest (mapconcat (lambda (py)
                             (concat (car py) (cdr py)))
-                          (nthcdr (length pyim-current-str) pyim-pinyin-list)
+                          (nthcdr (length pyim-current-str) (car pyim-pylist-list))
                           "'"))
     (if (string< "" rest)
         (setq pyim-current-str (concat pyim-current-str rest)))))
@@ -1876,11 +2111,11 @@ Counting starts at 1."
 ;; #+END_SRC
 
 ;; ** 显示和选择备选词条
-;; *** 构建词条菜单字符串： `pyim-guidance-str' 。
+;; *** 构建词条菜单字符串
 ;; Chinese-pyim 内建两种方式显示选词框：
 
 ;; 1. 使用 `pyim-minibuffer-message' 函数在 minibuffer 中显示选词框。
-;; 2. 使用 `pyim-pos-tip-show' 函数在光标处创建一个 tooltip 来显示选词框。
+;; 2. 使用 `pyim-tooltip-show' 函数在光标处创建一个 tooltip 来显示选词框。
 
 ;; 两种方式的基本原理相同：通过 *待选词列表* 构建为一个字符串，然后显示这个字符串。
 ;; 用户可以根据这个字符串的提示，来执行相应的动作，比如按空格确认当前选择的词条或
@@ -1895,13 +2130,17 @@ Counting starts at 1."
 ;; 函数。
 
 ;; #+BEGIN_EXAMPLE
-;; (#("你好" 0 2 (py ("ni-hao"))) #("倪皓" 0 2 (py ("ni-hao"))) "泥" "你" "呢" "拟" "逆" "腻" "妮" "怩" "溺" "尼" "禰" "齯" "麑" "鲵" "蜺" "衵" "薿" "旎" "睨" "铌" "昵" "匿" "倪" "霓" "暱" "柅" "猊" "郳" "輗" "坭" "惄" "堄" "儗" "伲" "祢" "慝")
+;; ("你好" "倪皓" "泥" "你" "呢" "拟" "逆" "腻" "妮" "怩" "溺" "尼" "禰" "齯" "麑" "鲵" "蜺" "衵" "薿" "旎" "睨" "铌" "昵" "匿" "倪" "霓" "暱" "柅" "猊" "郳" "輗" "坭" "惄" "堄" "儗" "伲" "祢" "慝")
 ;; #+END_EXAMPLE
 
-;; 变量 `pyim-guidance-str' 用来保存需要在 minibuffer 选词框中显示的词条
-;;  菜单字符串，而变量 `pyim-current-pos' 纪录当前选择的词条在
-;;  `pyim-current-choices' 中的位置，如果当前选择的词条为“倪皓”，那么其取
-;;  值为2，如果当前选择的词条为“腻”，其取值为8。
+;; minibuffer 或者 tooltip 选词框中显示的字符串通过
+;; `pyim-guidance-format-function' 变量对应的函数生成,
+;; chinese-pyim 当前内置了两个 format 函数：
+
+;; 1. pyim-guidance-format-function-two-lines
+;; 2. pyim-guidance-format-function-one-line
+
+;; 这些函数会根据 `pyim-guidance-list' 中的信息来得到所需要的字符串。
 
 ;;  *待选词列表* 一般都很长，不可能在一行中完全显示，所以 Chinese-pyim 使
 ;;  用了 page 的概念，比如，上面的 “nihao” 的 *待选词列表* 就可以逻辑的分
@@ -1941,7 +2180,7 @@ Counting starts at 1."
 ;;    #+END_EXAMPLE
 ;;    这个 sublist 的起点为  `pyim-page-start' 的返回值，终点为
 ;;    `pyim-page-end' 的返回值。然后使用这个 sublist 来构建类似下面的字符
-;;    串，并保存到变量 `pyim-guidance-str' 。
+;;    串，并保存到 `pyim-guidance-list'  :words 关键字对应的位置。
 ;;    #+BEGIN_EXAMPLE
 ;;    "1. 薿 2.旎 3.睨 4.铌 5.昵 6.匿 7.倪 8.霓 9.暱"
 ;;    #+END_EXAMPLE
@@ -1952,7 +2191,7 @@ Counting starts at 1."
 ;;    置在下一页。
 ;; 2. 然后将 `pyim-current-pos' 的值设定为 `pyim-page-start' 的返回值，确
 ;;    保 `pyim-current-pos' 的取值为下一页第一个词条的位置。
-;; 3. 最后调用 `pyim-format-page' 来重新设置 `pyim-guidance-str' 。
+;; 3. 最后调用 `pyim-format-page' 来重新设置 `pyim-guidance-list' 。
 
 ;; #+BEGIN_SRC emacs-lisp
 ;;;  page format
@@ -2004,27 +2243,36 @@ Counting starts at 1."
          (choice (pyim-subseq choices start end))
          (pos (- (min pyim-current-pos (length choices)) start))
          (i 0))
-    (setq pyim-guidance-str
-          (format "%s[%d/%d]: %s"
-                  (replace-regexp-in-string "-" " " pyim-current-key)
-                  (pyim-current-page) (pyim-total-page)
-                  (mapconcat 'identity
-                             (mapcar
-                              (lambda (c)
-                                (setq i (1+ i))
-                                (let (str)
-                                  (setq str (if (consp c)
-                                                (concat (car c) (cdr c))
-                                              c))
-                                  ;; 高亮当前选择的词条，用于 `pyim-next-word'
-                                  (if (and hightlight-current
-                                           (= i pos))
-                                      (format "%d.%s" i
-                                              (propertize
-                                               (concat "[" str "]")
-                                               'face 'pyim-minibuffer-string-face))
-                                    (format "%d. %s " i str))))
-                              choice) " ")))))
+    (setq pyim-guidance-list
+          (plist-put pyim-guidance-list
+                     :key
+                     (replace-regexp-in-string "-" " " pyim-current-key)))
+    (setq pyim-guidance-list
+          (plist-put pyim-guidance-list
+                     :current-page
+                     (pyim-current-page)))
+    (setq pyim-guidance-list
+          (plist-put pyim-guidance-list
+                     :total-page
+                     (pyim-total-page)))
+    (setq pyim-guidance-list
+          (plist-put pyim-guidance-list
+                     :words
+                     (mapconcat 'identity
+                                (mapcar
+                                 (lambda (c)
+                                   (setq i (1+ i))
+                                   (let (str)
+                                     (setq str (if (consp c)
+                                                   (concat (car c) (cdr c))
+                                                 c))
+                                     ;; 高亮当前选择的词条，用于 `pyim-next-word'
+                                     (if (and hightlight-current
+                                              (= i pos))
+                                         (format "%d[%s]" i
+                                                 (propertize str 'face 'pyim-minibuffer-string-face))
+                                       (format "%d.%s " i str))))
+                                 choice) "")))))
 
 (defun pyim-next-page (arg)
   (interactive "p")
@@ -2061,8 +2309,8 @@ Counting starts at 1."
 ;; #+END_SRC
 
 ;; *** 显示选词框
-;; 当`pyim-guidance-str' 构建完成后，Chinese-pyim 使用函数 `pyim-show' 重
-;; 新显示选词框，`pyim-show' 会根据函数 `pyim-use-tooltip-p' 的返回值来决定使用
+;; 当`pyim-guidance-list' 构建完成后，Chinese-pyim 使用函数 `pyim-show' 重
+;; 新显示选词框，`pyim-show' 会根据 `pyim-use-tooltip' 的取值来决定使用
 ;; 哪种方式来显示选词框（minibuffer 或者 tooltip ）。
 
 ;; #+BEGIN_SRC emacs-lisp
@@ -2083,18 +2331,84 @@ Counting starts at 1."
         ;; minibuffer.
         (pyim-minibuffer-message
          (format "  [%s]\n%s"
-                 current-input-method-title pyim-guidance-str))
+                 current-input-method-title
+                 (plist-get pyim-guidance-list :words)))
       ;; Show the guidance in echo area without logging.
       (let ((message-log-max nil))
-        (if (pyim-use-tooltip-p)
-            (let ((pos (string-match ": " pyim-guidance-str)))
-              (if pos
-                  (setq pyim-guidance-str
-                        (format "=> %s\n%s"
-                                (substring pyim-guidance-str 0 pos)
-                                (substring pyim-guidance-str (+ pos 2)))))
-              (pyim-pos-tip-show pyim-guidance-str (overlay-start pyim-overlay)))
-          (message "%s" pyim-guidance-str))))))
+        (if pyim-use-tooltip
+            (pyim-tooltip-show
+             (funcall pyim-guidance-format-function pyim-guidance-list)
+             (overlay-start pyim-overlay))
+          (message "%s" (pyim-guidance-format-function-minibuffer pyim-guidance-list)))))))
+
+(defun pyim-guidance-format-function-two-lines (guidance-list)
+  "将 guidance-list 格式化为类似下面格式的字符串，这个字符串将在
+tooltip 选词框中显示。
+
++----------------------------+
+| ni hao [1/9]               |
+| 1.你好 2.你号 ...          |
++----------------------------+
+
+guidance-list 的结构与 `pyim-guidance-list' 的结构相同。"
+  (format "=> %s [%s/%s]: \n%s"
+          (plist-get guidance-list :key)
+          (plist-get guidance-list :current-page)
+          (plist-get guidance-list :total-page)
+          (plist-get guidance-list :words)))
+
+(defun pyim-guidance-format-function-one-line (guidance-list)
+  "将 guidance-list 格式化为类似下面格式的字符串，这个字符串将在
+tooltip 选词框中显示。
+
++-----------------------------------+
+| [ni hao]: 1.你好 2.你号 ... (1/9) |
++-----------------------------------+
+
+guidance-list 的结构与 `pyim-guidance-list' 的结构相同。"
+  (format "[%s]: %s(%s/%s)"
+          (replace-regexp-in-string
+           " +" ""
+           (plist-get guidance-list :key))
+          (plist-get guidance-list :words)
+          (plist-get guidance-list :current-page)
+          (plist-get guidance-list :total-page)))
+
+(defun pyim-guidance-format-function-vertical (guidance-list)
+  "将 guidance-list 格式化为类似下面格式的字符串，这个字符串将在
+tooltip 选词框中显示。
+
++--------------+
+| ni hao [1/9] |
+| 1.你好       |
+| 2.你号 ...   |
++--------------+
+
+guidance-list 的结构与 `pyim-guidance-list' 的结构相同。"
+  (format "=> %s [%s/%s]: \n%s"
+          (plist-get guidance-list :key)
+          (plist-get guidance-list :current-page)
+          (plist-get guidance-list :total-page)
+          (replace-regexp-in-string
+           "]" "]\n"
+           (replace-regexp-in-string
+            " +" "\n"
+            (plist-get guidance-list :words)))))
+
+(defun pyim-guidance-format-function-minibuffer (guidance-list)
+  "将 guidance-list 格式化为类似下面格式的字符串，这个字符串
+将在 minibuffer 中显示。
+
++----------------------------------+
+| ni hao [1/9] 1.你好 2.你号 ...   |
++----------------------------------+
+
+guidance-list 的结构与 `pyim-guidance-list' 的结构相同。"
+  (format "%s [%s/%s]: %s"
+          (plist-get guidance-list :key)
+          (plist-get guidance-list :current-page)
+          (plist-get guidance-list :total-page)
+          (plist-get guidance-list :words)))
 
 (defun pyim-delete-region ()
   "Delete the text in the current translation region of E+."
@@ -2102,17 +2416,27 @@ Counting starts at 1."
       (delete-region (overlay-start pyim-overlay)
                      (overlay-end pyim-overlay))))
 
-(defun pyim-pos-tip-show (string position)
-  "在 `position' 位置，使用 pos-tip 显示字符串 `string' 。"
+(defun pyim-tooltip-show (string position)
+  "在 `position' 位置，使用 pos-tip 或者 popup 显示字符串 `string' 。"
   (let ((frame (window-frame (selected-window)))
-        (length (* pyim-page-length 10)))
-    (pos-tip-show-no-propertize pyim-guidance-str
-                                pyim-tooltip-color
-                                position nil 15
-                                (round (* (pos-tip-tooltip-width length (frame-char-width frame))
-                                          pyim-tooltip-width-adjustment))
-                                (pos-tip-tooltip-height 2 (frame-char-height frame) frame)
-                                nil nil 35)))
+        (length (* pyim-page-length 10))
+        (tooltip pyim-use-tooltip)
+        (pos-tip-usable-p (pyim-tooltip-pos-tip-usable-p)))
+    (cond ((or (eq tooltip t)
+               (eq tooltip 'popup)
+               (and (eq tooltip 'pos-tip)
+                    (not pos-tip-usable-p)))
+           (popup-tip string :point position :margin 1))
+          ((and pos-tip-usable-p
+                (eq tooltip 'pos-tip))
+           (pos-tip-show-no-propertize string
+                                       nil
+                                       position nil 15
+                                       (round (* (pos-tip-tooltip-width length (frame-char-width frame))
+                                                 pyim-tooltip-width-adjustment))
+                                       (pos-tip-tooltip-height 2 (frame-char-height frame) frame)
+                                       nil nil 35))
+          (t (error "`pyim-use-tooltip' 设置不对，请重新设置。")))))
 
 (defun pyim-minibuffer-message (string)
   (message nil)
@@ -2127,14 +2451,12 @@ Counting starts at 1."
       (setq quit-flag nil
             unread-command-events '(7)))))
 
-(defun pyim-use-tooltip-p ()
-  "当这个函数返回值为 t 时，Chinese-pyim 使用 tooltip 显示选词框，
-返回值为 nil 时，使用 minibuffer 显示选词框。"
-  (and pyim-use-tooltip
-       (not (or noninteractive
-                emacs-basic-display
-                (not (display-graphic-p))
-                (not (fboundp 'x-show-tip))))))
+(defun pyim-tooltip-pos-tip-usable-p ()
+  "测试当前环境下 pos-tip 是否可用。"
+  (not (or noninteractive
+           emacs-basic-display
+           (not (display-graphic-p))
+           (not (fboundp 'x-show-tip)))))
 ;; #+END_SRC
 
 ;; *** 选择备选词
@@ -2146,10 +2468,10 @@ Counting starts at 1."
         (setq pyim-current-str (pyim-translate last-command-event))
         (pyim-terminate-translation))
     (let ((str (pyim-choice (nth (1- pyim-current-pos) (car pyim-current-choices))))
-          pylist)
+          pylist-list)
       (pyim-create-or-rearrange-word str t)
       (setq pyim-pinyin-position (+ pyim-pinyin-position (length str)))
-      (if (>= pyim-pinyin-position (length pyim-pinyin-list))
+      (if (>= pyim-pinyin-position (length (car pyim-pylist-list)))
                                         ; 如果是最后一个，检查
                                         ; 是不是在文件中，没有的话，创
                                         ; 建这个词
@@ -2160,8 +2482,12 @@ Counting starts at 1."
             (pyim-terminate-translation)
             ;; Chinese-pyim 使用这个 hook 来处理联想词。
             (run-hooks 'pyim-select-word-finish-hook))
-        (setq pylist (nthcdr pyim-pinyin-position pyim-pinyin-list))
-        (setq pyim-current-choices (list (pyim-get-choices pylist))
+        (setq pylist-list (delete-dups
+                           (mapcar
+                            #'(lambda (pylist)
+                                (nthcdr pyim-pinyin-position pylist))
+                            pyim-pylist-list)))
+        (setq pyim-current-choices (list (pyim-get-choices pylist-list))
               pyim-current-pos 1)
         (pyim-update-current-str)
         (pyim-format-page)
@@ -2193,6 +2519,31 @@ Counting starts at 1."
 ;; Chinese-pyim 在运行过程中调用函数 `pyim-translate' 进行标点符号格式的转换。
 
 ;; #+BEGIN_SRC emacs-lisp
+(defun pyim-get-translate-trigger-char ()
+  "检查 `pyim-translate-trigger-char' 是否为一个合理的 trigger char 。
+
+Chinese-pyim 的 translate-trigger-char 要占用一个键位，为了防止用户
+自定义设置与输入法冲突，这里需要检查一下这个键位设置的是否合理，
+如果不合理，就返回输入法默认设定。"
+  (let* ((user-trigger-char pyim-translate-trigger-char)
+         (user-trigger-char
+          (if (characterp user-trigger-char)
+              (char-to-string user-trigger-char)
+            (when (= (length user-trigger-char) 1)
+              user-trigger-char)))
+         (first-char (pyim-get-pinyin-scheme-option
+                      pyim-default-pinyin-scheme
+                      :first-chars))
+         (prefer-trigger-chars (pyim-get-pinyin-scheme-option
+                                pyim-default-pinyin-scheme
+                                :prefer-trigger-chars)))
+    (if (pyim-string-match-p user-trigger-char first-char)
+        (progn
+          ;; (message "注意：pyim-translate-trigger-char 设置和当前输入法冲突，使用推荐设置：\"%s\""
+          ;;          prefer-trigger-chars)
+          prefer-trigger-chars)
+      user-trigger-char)))
+
 (defun pyim-translate (char)
   (let* ((str (char-to-string char))
          ;; 注意：`str' 是 *待输入* 的字符对应的字符串。
@@ -2210,7 +2561,8 @@ Counting starts at 1."
          ;; `str-before-1' 在其对应的标点列表中的位置。
          (punc-posit-before-1
           (cl-position str-before-1 punc-list-before-1
-                       :test #'equal)))
+                       :test #'equal))
+         (trigger-str (pyim-get-translate-trigger-char)))
     (cond
      ;; 空格之前的字符什么也不输入。
      ((< char ? ) "")
@@ -2219,9 +2571,8 @@ Counting starts at 1."
      ;; 比如：在一个中文字符串后输入 2v，可以将光标前两个中文字符
      ;; 组成的字符串，保存到个人词库。
      ((and (member (char-before) (number-sequence ?2 ?9))
-           (stringp str-before-2)
-           (string-match-p "\\cc" str-before-2)
-           (= char pyim-translate-trigger-char))
+           (pyim-string-match-p "\\cc" str-before-2)
+           (equal str trigger-str))
       (delete-char -1)
       (pyim-create-word-at-point
        (string-to-number str-before-1))
@@ -2229,14 +2580,13 @@ Counting starts at 1."
 
      ;; 光标前面的字符为中文字符时，按 v 清洗当前行的内容。
      ((and (not (numberp punc-posit-before-1))
-           (stringp str-before-1)
-           (string-match-p "\\cc" str-before-1)
-           (= char pyim-translate-trigger-char))
+           (pyim-string-match-p "\\cc" str-before-1)
+           (equal str trigger-str))
       (funcall pyim-wash-function)
       "")
 
      ;; 关闭标点转换功能时，只插入英文标点。
-     ((not pyim-punctuation-translate-p)
+     ((not (pyim-punctuation-full-width-p))
       ;; `pyim-last-input-word' 保存的词条用于词语联想，
       ;; 逻辑上，当输入标点符号后，保存的词条已经失效，
       ;; 应该将其清空。
@@ -2250,11 +2600,21 @@ Counting starts at 1."
       (setq pyim-last-input-word nil)
       str)
 
+     ;; 当 `pyim-punctuation-half-width-functions' 中
+     ;; 任意一个函数返回值为 t 时，插入英文标点。
+     ((cl-some #'(lambda (x)
+                   (if (functionp x)
+                       (funcall x char)
+                     nil))
+               pyim-punctuation-half-width-functions)
+      (setq pyim-last-input-word nil)
+      str)
+
      ;; 当光标前面为英文标点时， 按 `pyim-translate-trigger-char'
      ;; 对应的字符后， 自动将其转换为对应的中文标点。
      ((and (numberp punc-posit-before-1)
            (= punc-posit-before-1 0)
-           (= char pyim-translate-trigger-char))
+           (equal str trigger-str))
       (setq pyim-last-input-word nil)
       (pyim-punctuation-translate-last-n-punctuations 'full-width)
       "")
@@ -2263,7 +2623,7 @@ Counting starts at 1."
      ;; 对应的字符后， 自动将其转换为对应的英文标点。
      ((and (numberp punc-posit-before-1)
            (> punc-posit-before-1 0)
-           (= char pyim-translate-trigger-char))
+           (equal str trigger-str))
       (setq pyim-last-input-word nil)
       (pyim-punctuation-translate-last-n-punctuations 'half-width)
       "")
@@ -2325,26 +2685,45 @@ Counting starts at 1."
 ;; 会检测光标前面的字符，如果这个字符属于 `pyim-punctuation-escape-list' ，Chinese-pyim 将输入
 ;; 半角标点，具体细节见：`pyim-translate'
 
-;; 用户可以使用 `pyim-toggle-full-width-punctuation' 全局的控制输入的标点符号是半角标点还是全角标点。
+;; 输入标点的样式的改变（全角或者半角）受三个方面影响：
 
+;; 1. 用户是否手动切换了标点样式？
+;; 2  用户是否手动切换到英文输入模式？
+;; 3. Chinese-pyim 是否根据环境自动切换到英文输入模式？
+
+;; 三方面的综合结果为： 只要当前的输入模式是英文输入模式，那么输入的标点符号 *必定* 是半角标点，
+;; 如果当前输入模式是中文输入模式，那么，输入标点的样式用户可以使用 `pyim-toggle-full-width-punctuation'
+;; 手动控制，具体请参考 `pyim-punctuation-full-width-p'。
 
 ;; #+BEGIN_SRC emacs-lisp
 ;;; 切换中英文标点符号
-(defun pyim-toggle-full-width-punctuation (arg &optional silent)
-  (interactive "P")
+(defun pyim-punctuation-full-width-p ()
+  "判断是否需要切换到全角标点输入模式"
+  (cl-case (car pyim-punctuation-translate-p)
+    (yes t)
+    (no nil)
+    (auto
+     ;; 如果用户手动或者根据环境自动切换为英文输入模式，
+     ;; 那么标点符号也要切换为半角模式。
+     (and (not pyim-input-ascii)
+          (not (pyim-auto-switch-english-input-p))))))
+
+(defun pyim-toggle-full-width-punctuation ()
+  (interactive)
   (setq pyim-punctuation-translate-p
-        (if (null arg)
-            (not pyim-punctuation-translate-p)
-          (> (prefix-numeric-value arg) 0)))
-  (unless silent
-    (if pyim-punctuation-translate-p
-        (message "开启标点转换功能（使用全角标点）")
-      (message "关闭标点转换功能（使用半角标点）"))))
+        `(,@(cdr pyim-punctuation-translate-p)
+          ,(car pyim-punctuation-translate-p)))
+  (message
+   (cl-case (car pyim-punctuation-translate-p)
+     (yes "开启全角标点输入模式。")
+     (no "开启半角标点输入模式。")
+     (auto "开启全半角标点自动转换模式。"))))
 ;; #+END_SRC
 
-;; 每次运行这个命令，都会反转变量 `pyim-punctuation-translate-p' 的取值，`pyim-translate' 会检测
-;; `pyim-punctuation-translate-p' 的取值，当取值为 t 时，`pyim-translate' 转换标点符号，从而
-;; 输入全角标点，反之，`pyim-translate' 忽略转换，从而输入半角标点。
+;; 每次运行 `pyim-toggle-full-width-punctuation' 命令，都会反转变量 `pyim-punctuation-translate-p'
+;; 的取值，`pyim-translate' 会检测 `pyim-punctuation-full-width-p' 函数的返回值，当返回值为 t 时，
+;; `pyim-translate' 转换标点符号，从而输入全角标点，反之，`pyim-translate' 忽略转换，
+;; 从而输入半角标点。
 
 ;; 用户也可以使用命令 `pyim-punctuation-translate-at-point' 来切换 *光标前* 标点符号的样式。
 
@@ -2488,113 +2867,6 @@ Counting starts at 1."
 ;; 当待输入的字符是触发字符时，`pyim-translate' 根据光标前的字符的不同
 ;; 来调用不同的功能，具体见 `pyim-translate' ：
 
-;; ** 查询某个汉字的拼音code
-;;   :PROPERTIES:
-;;   :CUSTOM_ID: make-char-table
-;;   :END:
-;; Chinese-pyim 在特定的时候需要读取一个汉字的拼音，这个工作由下面几个函数完成：
-
-;; 函数 `pyim-get-char-code' 从 `pyim-char-table' 查询得到一个汉字字符的拼音， 例如：
-;; #+BEGIN_EXAMPLE
-;; (pyim-get-char-code ?我)
-;; #+END_EXAMPLE
-
-;; 结果为:
-;; : ("wo")
-
-;; 函数 `pyim-make-char-table-1' 参数 `chars’的形式类似：
-;; #+BEGIN_EXAMPLE
-;; (("ni" "你尼呢腻")
-;;  ("wo" "我握涡卧龌"))
-;; #+END_EXAMPLE
-
-;; 最终得到一个汉字到拼音的 *hash table* ，用 *一个列表* 直观的表示为：
-;; #+BEGIN_EXAMPLE
-;; (('我 '("wo"))
-;;  ('你 '("ni"))
-;;  ('行 '("xing" "hang"))
-;;  ('大 '("da")))
-;; #+END_EXAMPLE
-
-;; 我们用全局变量 `pyim-char-table' 来保存这个 *hash table* 。
-
-;; 函数 `pyim-make-char-table-quail/PY' 是函数 `pyim-make-char-table-1' 的包装，
-;; 这个函数是一个 *历史函数* ，已经没有作用了，仅仅用于学习，其运行过程大体为：
-;; 1. 使用 regexp 解析  "quail/PY.el" 文件中的汉字拼音信息，这个文件的结构类似：
-;;    #+BEGIN_EXAMPLE
-;;    (quail-define-rules
-;;    ("a" "阿啊呵腌嗄锕吖")
-;;    ("ai" "爱哀挨碍埃癌艾唉矮哎皑蔼隘暧霭捱嗳瑷嫒锿嗌砹")
-;;    ("an" "安案按暗岸俺谙黯鞍氨庵桉鹌胺铵揞犴埯")
-;;    ("ang" "昂肮盎")
-;;    ("ao" "奥澳傲熬敖凹袄懊坳嗷拗鏖骜鳌翱岙廒遨獒聱媪螯鏊")
-;;    ("ba" "把八吧巴爸罢拔叭芭霸靶扒疤跋坝笆耙粑灞茇菝魃岜捌钯鲅")
-;;    ("bai" "百白败摆伯拜柏呗掰捭佰稗")
-;;    ("ban" "办半版般班板伴搬扮斑颁瓣拌扳绊阪坂瘢钣舨癍")
-;;    ...
-;;    )
-;;    #+END_EXAMPLE
-;; 2. 将上述汉字拼音信息 *按行处理* ，转换为下述类似的列表结构。
-;;    #+BEGIN_EXAMPLE
-;;    (("ni" "你尼呢腻"))
-;;    #+END_EXAMPLE
-;; 3. 使用 `pyim-make-char-table-1' 处理得到的列表。
-;;
-;; 函数 `pyim-make-char-table' 也是函数 `pyim-make-char-table-1' 的包装，
-;; 其过程简单来说就是使用 `pyim-make-char-table-1' 函数处理变量
-;; `pyim-pinyin-pymap' 中保存的拼音汉字对应信息。
-
-;; 这个例子中的语句用于调试上述三个函数。
-;; #+BEGIN_EXAMPLE
-;; (setq pyim-char-table nil)
-;; (pyim-make-char-table-1 '(("ni" "你呢泥")))
-;; (pyim-make-char-table)
-;; (pyim-get-char-code ?你)
-;; #+END_EXAMPLE
-
-
-;; #+BEGIN_SRC emacs-lisp
-(defun pyim-get-char-code (char)
-  "Get the code of the character CHAR"
-  (symbol-value (intern-soft (char-to-string char) pyim-char-table)))
-
-(defun pyim-make-char-table-1 (chars)
-  (dolist (char chars)
-    (let ((code (car char)))
-      (mapc (lambda (c)
-              (let* ((str (char-to-string c))
-                     (s (intern-soft str pyim-char-table))
-                     (py (and s (symbol-value s))))
-                (set (intern str pyim-char-table)
-                     (cl-remove-duplicates
-                      (append py (list code)) :test #'equal))))
-            (car (cdr char))))))
-
-(defun pyim-make-char-table ()
-  "Build pinyin char hashtable from `pyim-pinyin-pymap'
-in package `chinese-pyim-pymap'"
-  (pyim-make-char-table-1 pyim-pinyin-pymap))
-
-(defun pyim-make-char-table-from-quail/PY ()
-  "Build pinyin char hashtable from quail/PY.el，
-这个函数暂时没有用处。"
-  (interactive)
-  (let ((file (locate-library "quail/PY.el")))
-    (if file
-        (with-temp-buffer
-          (insert-file-contents file)
-          (goto-char (point-min))
-          (while (re-search-forward
-                  "^[[:space:]]*([[:space:]]*\"\\([a-z]+\\)\"[[:space:]]*\"\\([^\"]+\\)\"[[:space:]]*)[[:space:]]*$" nil t)
-            (let ((pinyin (match-string 1))
-                  (hanzi-string (substring-no-properties (match-string 2))))
-              (pyim-make-char-table-1 `((,pinyin ,hanzi-string))))))
-      (warn "没有找到 Emacs 自带文件: quail/PY.el，用户可能没有安装 emacs<VERSION>-el 软件包。
-此时， Chinese-pyim 可以正常输入词条，但下面几个功能失效：
-1. 词频调整功能
-2. 汉字到拼音转换功能
-3. 词条添加和删除功能"))))
-;; #+END_SRC
 
 ;; ** 与拼音输入相关的用户命令
 ;; *** 删除拼音字符串最后一个字符
@@ -2613,10 +2885,35 @@ in package `chinese-pyim-pymap'"
 ;; #+BEGIN_SRC emacs-lisp
 (defun pyim-backward-kill-py ()
   (interactive)
-  (string-match "['-][^'-]+$" pyim-current-key)
-  (setq pyim-current-key
-        (replace-match "" nil nil pyim-current-key))
-  (pyim-handle-string))
+  (if (string-match "['-][^'-]+$" pyim-current-key)
+      (progn (setq pyim-current-key
+                   (replace-match "" nil nil pyim-current-key))
+             (pyim-handle-string))
+    (setq pyim-current-key "")
+    (setq pyim-current-str "")
+    (pyim-terminate-translation)))
+;; #+END_SRC
+
+;; *** 将光标前的拼音字符串转换为中文
+;; #+BEGIN_SRC emacs-lisp
+(defun pyim-convert-pinyin-at-point ()
+  (interactive)
+  (unless (equal input-method-function 'pyim-input-method)
+    (toggle-input-method))
+  (let* ((pyim-force-input-chinese t)
+         (string (if mark-active
+                     (buffer-substring-no-properties
+                      (region-beginning) (region-end))
+                   (buffer-substring (point) (line-beginning-position))))
+         pinyin length)
+    (and (string-match "[a-zA-Z'-]+ *$" string)
+         (setq pinyin (match-string 0 string))
+         (setq length (length pinyin))
+         (setq pinyin (replace-regexp-in-string " +" "" pinyin)))
+    (when (and length (> length 0))
+      (delete-char (- 0 length))
+      (insert (mapconcat #'char-to-string
+                         (pyim-input-method pinyin) "")))))
 ;; #+END_SRC
 
 ;; *** 取消当前输入
@@ -2634,48 +2931,6 @@ in package `chinese-pyim-pymap'"
                                                    pyim-current-key))
   (pyim-terminate-translation))
 ;; #+END_SRC
-;; *** 处理模糊音
-;; 'Chinese-pyim的核心并不能处理模糊音，这里提供了一个比较 *粗糙* 的方法来处理模糊音。
-
-;; 假如：用户需要输入“应该”，其拼音为“ying-gai”，但用户确输入了一个错误的拼音“yin-gai”，
-;; 这时，用户可以通过快捷键运行 `pyim-fuzzy-pinyin-adjust' ，将“in” 替换为 “ing”，得到
-;; “ying-gai”对应的词语，用户可以通过设置变量 `pyim-fuzzy-pinyin-adjust-function' 来自定义模
-;; 糊音处理函数。
-
-;; 这种处理方式能力有限，一次不能处理太多的模糊音，用户需要根据自己的需要，自定义模糊音处理函数。
-;; 具体可以参考函数 `pyim-pinyin-fuzzy-adjust-1' 的定义。
-
-;; #+BEGIN_SRC emacs-lisp
-(defun pyim-fuzzy-pinyin-adjust ()
-  (interactive)
-  (funcall pyim-fuzzy-pinyin-adjust-function))
-
-(defun pyim-fuzzy-pinyin-adjust-1 ()
-  (interactive)
-  (when (stringp pyim-current-key)
-    (cond
-     ((string-match-p "eng" pyim-current-key)
-      (setq pyim-current-key
-            (replace-regexp-in-string "eng" "en" pyim-current-key)))
-     ((string-match-p "en[^g]*" pyim-current-key)
-      (setq pyim-current-key
-            (replace-regexp-in-string "en" "eng" pyim-current-key))))
-    (cond
-     ((string-match-p "ing" pyim-current-key)
-      (setq pyim-current-key
-            (replace-regexp-in-string "ing" "in" pyim-current-key)))
-     ((string-match-p "in[^g]*" pyim-current-key)
-      (setq pyim-current-key
-            (replace-regexp-in-string "in" "ing" pyim-current-key))))
-    (cond
-     ((string-match-p "un" pyim-current-key)
-      (setq pyim-current-key
-            (replace-regexp-in-string "un" "ong" pyim-current-key)))
-     ((string-match-p "ong" pyim-current-key)
-      (setq pyim-current-key
-            (replace-regexp-in-string "ong" "un" pyim-current-key))))
-    (pyim-handle-string)))
-;; #+END_SRC
 
 ;; *** Chinese-pyim 取消激活
 ;; #+BEGIN_SRC emacs-lisp
@@ -2689,27 +2944,63 @@ in package `chinese-pyim-pymap'"
 (defun pyim-toggle-input-ascii ()
   "Chinese-pyim 切换中英文输入模式。同时调整标点符号样式。"
   (interactive)
-  (setq pyim-punctuation-translate-p
-        (not pyim-input-ascii))
   (setq pyim-input-ascii
-        (not pyim-input-ascii))
-  (setq pyim-punctuation-translate-p
-        (not pyim-punctuation-translate-p))
-  (if pyim-input-ascii
-      (setq current-input-method-title (concat pyim-title "-英文"))
-    (setq current-input-method-title pyim-title)))
+        (not pyim-input-ascii)))
 ;; #+END_SRC
+
+;; *** 为 isearch 添加拼音搜索功能
+;; #+BEGIN_SRC emacs-lisp
+(defun pyim-isearch-build-search-regexp (pystr)
+  "这个函数用于 isearch 中文 *拼音* 搜索，
+根据 str 构建一个 regexp, 比如：
+
+\"nihao\" -> \"[你呢...][好号...] \\| nihao\""
+  (if (pyim-string-match-p "[^a-z']+" pystr)
+      pystr
+    ;; 确保 pyim 词库已经加载
+    (unless pyim-buffer-list
+      (setq pyim-buffer-list (pyim-load-file)))
+    (let* ((pylist-list
+            ;; Slowly operating, need to improve.
+            (pyim-split-string pystr pyim-default-pinyin-scheme))
+           (regexp-list
+            (mapcar
+             #'(lambda (pylist)
+                 (pyim-build-chinese-regexp-for-pylist pylist))
+             pylist-list))
+           (regexp
+            (when regexp-list
+              (mapconcat #'identity
+                         (delq nil regexp-list)
+                         "\\|")))
+           (regexp
+            (if (> (length regexp) 0)
+                (concat pystr "\\|" regexp)
+              pystr)))
+      regexp)))
+
+(defun pyim-isearch-pinyin-search-function ()
+  "这个函数为 isearch 相关命令添加中文拼音搜索功能，
+用于 `isearch-search-fun-function' 。"
+  (if pyim-isearch-enable-pinyin-search
+      ;; Return the function to use for pinyin search
+      `(lambda (string &optional bound noerror count)
+         (if (pyim-string-match-p "[^a-z]+" string)
+             (funcall (isearch-search-fun-default) string bound noerror count)
+           (funcall (if ,isearch-forward
+                        're-search-forward
+                      're-search-backward)
+                    (pyim-isearch-build-search-regexp string) bound noerror count)))
+    ;; Return default function
+    (isearch-search-fun-default)))
+
+(setq isearch-search-fun-function 'pyim-isearch-pinyin-search-function)
+;; #+END_SRC
+
 
 ;; * Footer
 ;; #+BEGIN_SRC emacs-lisp
 (provide 'chinese-pyim-core)
-
-;; Local Variables:
-;; coding: utf-8-unix
-;; tab-width: 4
-;; indent-tabs-mode: nil
-;; lentic-init: lentic-el2org-init
-;; End:
 
 ;;; chinese-pyim-core.el ends here
 ;; #+END_SRC

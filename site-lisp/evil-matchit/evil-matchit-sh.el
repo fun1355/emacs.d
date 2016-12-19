@@ -1,6 +1,6 @@
 ;;; evil-matchit-sh.el ---sh (bash/zsh) plugin of evil-matchit
 
-;; Copyright (C) 2014  Chen Bin <chenbin.sh@gmail.com>
+;; Copyright (C) 2014-2016 Chen Bin <chenbin.sh@gmail.com>
 
 ;; Author: Chen Bin <chenbin.sh@gmail.com>
 
@@ -33,26 +33,21 @@
 
 ;; ruby/bash/lua/vimrc
 (defvar evilmi-sh-match-tags
-  '((("if") ("elif" "else") ("fi"))
-    ("case" (";;") ("esac"))
-    ("function" ("exit") ("\}") "FN_EXIT")
-    (("for" "do" "while" "until") () ("done"))
-    ))
+  '((("if") ("elif" "else") ("fi") "MONOGAMY")
+    ("case" (";;") ("esac") "MONOGAMY")
+    (("for" "do" "while" "until") () ("done"))))
 
 (defvar evilmi-sh-extract-keyword-howtos
   '(("^[ \t]*\\([a-z]+\\)\\( .*\\| *\\)$" 1)
     ("^.*\\(;;\\) *$" 1)
-    ("^\\(\} *\\)" 1)
-    ))
+    ("^\\(\} *\\)" 1)))
 
 ;;;###autoload
 (defun evilmi-sh-get-tag ()
-  (evilmi-sdk-get-tag evilmi-sh-match-tags evilmi-sh-extract-keyword-howtos)
-  )
+  (evilmi-sdk-get-tag evilmi-sh-match-tags evilmi-sh-extract-keyword-howtos))
 
 ;;;###autoload
 (defun evilmi-sh-jump (rlt NUM)
-  (evilmi-sdk-jump rlt NUM evilmi-sh-match-tags evilmi-sh-extract-keyword-howtos)
-  )
+  (evilmi-sdk-jump rlt NUM evilmi-sh-match-tags evilmi-sh-extract-keyword-howtos))
 
 (provide 'evil-matchit-sh)

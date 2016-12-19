@@ -1,4 +1,8 @@
 ;;; init-misc-lazy.el --- misc setup loaded later
+
+(setq auto-mode-alist
+      (cons '("\\.textile\\'" . textile-mode) auto-mode-alist))
+
 (transient-mark-mode t)
 
 (recentf-mode 1)
@@ -8,9 +12,6 @@
       auto-revert-verbose nil)
 
 (add-to-list 'auto-mode-alist '("\\.[Cc][Ss][Vv]\\'" . csv-mode))
-(autoload 'csv-mode "csv-mode" "Major mode for comma-separated value files." t)
-
-(autoload 'find-by-pinyin-dired "find-by-pinyin-dired" "" t)
 
 ;;----------------------------------------------------------------------------
 ;; Don't disable narrowing commands
@@ -23,24 +24,10 @@
 (add-hook 'comint-mode-hook
           (lambda () (setq show-trailing-whitespace nil)))
 
-(autoload 'sos "sos" "search stackoverflow" t)
-
-;;----------------------------------------------------------------------------
-;; Fix per-window memory of buffer point positions
-;;----------------------------------------------------------------------------
-(global-pointback-mode)
-
 ;;----------------------------------------------------------------------------
 ;; Page break lines
 ;;----------------------------------------------------------------------------
 (global-page-break-lines-mode)
-
-;; {{ shell and conf
-(add-to-list 'auto-mode-alist '("\\.[^b][^a][a-zA-Z]*rc$" . conf-mode))
-(add-to-list 'auto-mode-alist '("\\.aspell\\.en\\.pws\\'" . conf-mode))
-(add-to-list 'auto-mode-alist '("\\.meta\\'" . conf-mode))
-(add-to-list 'auto-mode-alist '("\\.ctags\\'" . conf-mode))
-;; }}
 
 (column-number-mode 1)
 
@@ -49,31 +36,18 @@
        (lambda ()
          (concat (getenv "USER") " $ ")))
 
-;; Write backup files to own directory
-(if (not (file-exists-p (expand-file-name "~/.backups")))
-  (make-directory (expand-file-name "~/.backups")))
-(setq backup-by-coping t ; don't clobber symlinks
-      backup-directory-alist '(("." . "~/.backups"))
-      delete-old-versions t
-      version-control t  ;use versioned backups
-      kept-new-versions 6
-      kept-old-versions 2)
-
-;; Donot make backups of files, not safe
-;; @see https://github.com/joedicastro/dotfiles/tree/master/emacs
-(setq vc-make-backup-files nil)
 
 ;; I'm in Australia now, so I set the locale to "en_AU"
 (defun insert-date (prefix)
-    "Insert the current date. With prefix-argument, use ISO format. With
+  "Insert the current date. With prefix-argument, use ISO format. With
    two prefix arguments, write out the day and month name."
-    (interactive "P")
-    (let ((format (cond
-                   ((not prefix) "%d.%m.%Y")
-                   ((equal prefix '(4)) "%Y-%m-%d")
-                   ((equal prefix '(16)) "%d %B %Y")))
-          )
-      (insert (format-time-string format))))
+  (interactive "P")
+  (let ((format (cond
+                 ((not prefix) "%d.%m.%Y")
+                 ((equal prefix '(4)) "%Y-%m-%d")
+                 ((equal prefix '(16)) "%d %B %Y")))
+        )
+    (insert (format-time-string format))))
 
 ;;compute the length of the marked region
 (defun region-length ()
@@ -192,7 +166,6 @@ grab matched string, cssize them, and insert into kill ring"
 ;; }}
 
 ;; {{ direx
-(autoload 'direx:jump-to-directory "direx" "" t)
 (global-set-key (kbd "C-x C-j") 'direx:jump-to-directory)
 ;; }}
 
@@ -248,8 +221,6 @@ grab matched string, cssize them, and insert into kill ring"
 ;;
 (setq sdcv-dictionary-simple-list '("朗道英汉字典5.0"))
 (setq sdcv-dictionary-complete-list '("WordNet"))
-(autoload 'sdcv-search-pointer "sdcv" "show word explanation in buffer" t)
-(autoload 'sdcv-search-input+ "sdcv" "show word explanation in tooltip" t)
 (global-set-key (kbd "C-c ; b") 'sdcv-search-pointer)
 (global-set-key (kbd "C-c ; t") 'sdcv-search-input+)
 ;; }}
@@ -258,17 +229,7 @@ grab matched string, cssize them, and insert into kill ring"
   "Make sure the full path of file exist in clipboard. This command will convert
 The full path into relative path insert it as a local file link in org-mode"
   (interactive)
-  (let (str)
-    (with-temp-buffer
-      (paste-from-x-clipboard)
-      (setq str (buffer-string)))
-
-    ;; convert to relative path (relative to current buffer) if possible
-    (let ((m (string-match (file-name-directory (buffer-file-name)) str) ))
-        (if (and m (= 0 m ))
-            (setq str (substring str (length (file-name-directory (buffer-file-name))))))
-      (insert (format "[[file:%s]]" str))
-      )))
+  (insert (format "[[file:%s]]" (file-relative-name (simpleclip-get-contents)))))
 
 (defun font-file-to-base64 (file)
   (let ((str "")
@@ -323,8 +284,7 @@ The full path into relative path insert it as a local file link in org-mode"
   (let ((rlt (format "%S" (get-text-property (point) 'face))))
     (kill-new rlt)
     (copy-yank-str rlt)
-    (message "%s => clipboard & yank ring" rlt)
-    ))
+    (message "%s => clipboard & yank ring" rlt)))
 
 (defun current-thing-at-point ()
   (interactive)
@@ -449,27 +409,14 @@ Current position is preserved."
 (put 'downcase-region 'disabled nil)
 (put 'upcase-region 'disabled nil)
 
-;; java
-(add-to-list 'auto-mode-alist '("\\.aj\\'" . java-mode))
-
-(add-to-list 'auto-mode-alist '("archive-contents\\'" . emacs-lisp-mode))
-;; makefile
-(add-to-list 'auto-mode-alist '("\\.ninja$" . makefile-gmake-mode))
-
 ;; midnight mode purges buffers which haven't been displayed in 3 days
 (require 'midnight)
 (setq midnight-mode t)
 
 (add-auto-mode 'tcl-mode "Portfile\\'")
-;;----------------------------------------------------------------------------
-;; Shift lines up and down with M-up and M-down
-;;----------------------------------------------------------------------------
-(move-text-default-bindings)
 
-(autoload 'vr/replace "visual-regexp")
-(autoload 'vr/query-replace "visual-regexp")
-;; if you use multiple-cursors, this is for you:
-(autoload 'vr/mc-mark "visual-regexp")
+;; Shift lines up and down with M-up and M-down
+(move-text-default-bindings)
 
 ;; {{go-mode
 (require 'go-mode-load)
