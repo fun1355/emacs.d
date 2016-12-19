@@ -80,7 +80,7 @@ We increase this to 16MB by `(my-optimize-gc 16 0.5)` "
 (require 'init-org)
 (require 'init-org-mime)
 (require 'init-css)
-(require 'init-python-mode)
+;; (require 'init-python-mode) ;; a bug for me
 (require 'init-haskell)
 (require 'init-ruby-mode)
 (require 'init-lisp)
@@ -102,20 +102,21 @@ We increase this to 16MB by `(my-optimize-gc 16 0.5)` "
 (require 'init-lua-mode)
 (require 'init-workgroups2)
 (require 'init-term-mode)
-;; (require 'init-web-mode)  ;; a bug for me
+(require 'init-web-mode)
 (require 'init-slime)
 (when *emacs24* (require 'init-company))
-(require 'init-stripe-buffer)
-(require 'init-ocaml)
+;; (require 'init-stripe-buffer) ;; a bug for me
+;; (require 'init-ocaml) ;; a bug for me
 (require 'init-clojure)
-(require 'init-scheme)
-(require 'init-eim) ;;  cannot be idle-required
+;; (require 'init-scheme) ;; a bug for me
+;; (require 'init-eim) ;;  cannot be idle-required
 (require 'init-hs-minor-mode)
 (require 'init-web-mode)
 (require 'init-slime)
 (require 'init-clipboard)
 (require 'init-company)
-(require 'init-chinese-pyim) ;; cannot be idle-required
+(require 'init-chinese-pyim)
+;; ;; cannot be idle-required
 ;; ;; need statistics of keyfreq asap
 ;; (require 'init-keyfreq)
 (require 'init-httpd)
@@ -123,7 +124,7 @@ We increase this to 16MB by `(my-optimize-gc 16 0.5)` "
 ;; projectile costs 7% startup time
 
 ;; misc has some crucial tools I need immediately
-(require 'init-misc)
+;;(require 'init-misc)
 
 ;; comment below line if you want to setup color theme in your own way
 (if (or (display-graphic-p) (string-match-p "256color"(getenv "TERM"))) (require 'init-color-theme))
