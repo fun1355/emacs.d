@@ -107,7 +107,7 @@
 
     ;; 当字符串长度太长时， `pyim-split-chinese-string'
     ;; 的速度比较慢，这里确保待分词的字符串长度不超过10.
-    (when (and str (not (string-match-p "\\CC" str)))
+    (when (and str (not (pyim-string-match-p "\\CC" str)))
       (if (> str-offset 5)
           (progn (setq str-offset-adjusted 5)
                  (setq str (substring str
@@ -117,7 +117,7 @@
         (setq str (substring str 0 (min 9 str-length)))))
 
     (cond
-     ((and str (not (string-match-p "\\CC" str)))
+     ((and str (not (pyim-string-match-p "\\CC" str)))
       (setq words-alist
             (pyim-split-chinese-string str))
       (dolist (word-list words-alist)
@@ -194,7 +194,7 @@
       (dolist (string-list string-alist)
         (let ((pinyin-list (pyim-hanzi2pinyin (car string-list) nil "-" t)))
           (dolist (pinyin pinyin-list)
-            (let ((words (pyim-get pinyin nil t))) ; 忽略个人词库 buffer 可以提高速度
+            (let ((words (pyim-get pinyin '(pinyin-dict)))) ; 忽略个人词库 buffer 可以提高速度
               (dolist (word words)
                 (when (equal word (car string-list))
                   (push string-list result)))))))
@@ -213,7 +213,7 @@
 最长词条默认不超过6个字符，用户可以通 `max-word-length' 来自定义词条的最大长度，
 但值得注意的是，这个值设置越大，分词速度越慢。"
   (let ((string-list
-         (if (string-match-p "\\CC" string)
+         (if (pyim-string-match-p "\\CC" string)
              (split-string
               (replace-regexp-in-string
                "\\(\\CC+\\)" "@@@@\\1@@@@" string) "@@@@")
@@ -221,7 +221,7 @@
     (mapconcat
      #'(lambda (str)
          (when (> (length str) 0)
-           (if (not (string-match-p "\\CC" str))
+           (if (not (pyim-string-match-p "\\CC" str))
                (pyim-split-chinese-string2string-internal
                 str prefer-short-word separator max-word-length)
              (concat " " str " "))))
@@ -267,8 +267,6 @@
   "将一个 buffer 中的中文文章，进行分词操作。"
   (interactive)
   (message "分词开始！")
-  (unless pyim-buffer-cache-list
-    (message "NOTE：分词前运行命令 `pyim-cache-dict-buffer' 可以显著的提高分词速度。。。"))
   (goto-char (point-min))
   (while (not (eobp))
     (let ((string (buffer-substring-no-properties
@@ -285,13 +283,6 @@
 ;; * Footer
 ;; #+BEGIN_SRC emacs-lisp
 (provide 'chinese-pyim-utils)
-
-;; Local Variables:
-;; coding: utf-8-unix
-;; tab-width: 4
-;; indent-tabs-mode: nil
-;; lentic-init: lentic-el2org-init
-;; End:
 
 ;;; chinese-pyim-utils.el ends here
 ;; #+END_SRC

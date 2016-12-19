@@ -5,23 +5,31 @@
 ;; kill-ring and clipboard are same? No, it's annoying!
 ;; (setq save-interprogram-paste-before-kill t)
 
-(autoload 'simpleclip-get-contents "simpleclip" "" t)
-(autoload 'simpleclip-set-contents "simpleclip" "" t)
-
 ;; you need install xsel under Linux
 ;; xclip has some problem when copying under Linux
 (defun copy-yank-str (msg &optional clipboard-only)
   (unless clipboard-only (kill-new msg))
   (simpleclip-set-contents msg))
 
-(defun cp-filename-of-current-buffer ()
-  "Copy file name (NOT full path) into the yank ring and OS clipboard"
+(defun cp-filename-of-current-buffer () "Copy file name (NOT full path) into the yank ring and OS clipboard."
   (interactive)
-  (let (filename)
-    (when buffer-file-name
-      (setq filename (file-name-nondirectory buffer-file-name))
+  (when buffer-file-name
+    (let* ((filename (file-name-nondirectory buffer-file-name)))
       (copy-yank-str filename)
       (message "filename %s => clipboard & yank ring" filename))))
+
+(defun cp-ffip-ivy-last ()
+  "Copy visible keys of `ivy-last' into `kill-ring' and clipboard."
+  (interactive)
+  (unless (featurep 'find-file-in-project)
+    (require 'find-file-in-project))
+  (when ffip-ivy-last-saved
+    (copy-yank-str
+     (mapconcat (lambda (e)
+                  (format "%S" (if (consp e) (car e) e)))
+                (ivy-state-collection ffip-ivy-last-saved)
+                "\n"))
+    (message "%d items from ivy-last => clipboard & yank ring" (length ivy-last))))
 
 (defun cp-filename-line-number-of-current-buffer ()
   "Copy file:line into the yank ring and clipboard"
@@ -48,11 +56,10 @@
 (defun copy-to-x-clipboard (&optional num)
   "If NUM equals 1, copy the downcased string.
 If NUM equals 2, copy the captalized string.
-If NUM equals 3, copy the upcased string."
+If NUM equals 3, copy the upcased string.
+If NUM equals 4, kill-ring => clipboard."
   (interactive "P")
-  (let ((thing (if (region-active-p)
-                   (buffer-substring-no-properties (region-beginning) (region-end))
-                 (thing-at-point 'symbol))))
+  (let* ((thing (my-use-selected-string-or-ask "")))
     (cond
      ((not num))
      ((= num 1)
@@ -61,31 +68,39 @@ If NUM equals 3, copy the upcased string."
       (setq thing (capitalize thing)))
      ((= num 3)
       (setq thing (upcase thing)))
+     ((= num 4)
+      (simpleclip-set-contents (car kill-ring)))
      (t
       (message "C-h f copy-to-x-clipboard to find right usage")))
 
     (simpleclip-set-contents thing)
-    (message "thing => clipboard!")))
+    (if (not (and num (= 4 num))) (message "kill-ring => clipboard")
+      (message "thing => clipboard!"))))
 
-(defun paste-from-x-clipboard()
-  "Paste string clipboard"
-  (interactive)
-  (insert (simpleclip-get-contents)))
-
-(defun my/paste-in-minibuffer ()
-  (local-set-key (kbd "M-y") 'paste-from-x-clipboard))
-(add-hook 'minibuffer-setup-hook 'my/paste-in-minibuffer)
-
-(defun paste-from-clipboard-and-cc-kill-ring ()
-  "Paste from clipboard and cc the content into kill ring"
-  (interactive)
-  (let ((str (simpleclip-get-contents)))
-    (insert str)
-    ;; cc the content into kill ring at the same time
-    (kill-new str)))
-
-(defun latest-kill-to-clipboard ()
-  (interactive)
-  (copy-yank-str (current-kill 1) t))
+(defun paste-from-x-clipboard(&optional n)
+  "Paste string clipboard.
+If N is 1, we paste diff hunk whose leading char should be removed.
+If N is 2, paste into kill-ring too.
+If N is 3, converted dashed to camelcased then paste."
+  (interactive "P")
+  ;; paste after the cursor in evil normal state
+  (when (and (functionp 'evil-normal-state-p)
+             (functionp 'evil-move-cursor-back)
+             (evil-normal-state-p)
+             (not (eolp))
+             (not (eobp)))
+    (forward-char))
+  (let* ((str (simpleclip-get-contents)))
+    (cond
+     ((not n)
+      ;; do nothing
+      )
+     ((= 1 n)
+      (setq str (replace-regexp-in-string "^\\(+\\|-.*\\|@@ .*$\\)" "" str)))
+     ((= 2 n)
+      (kill-new str))
+     ((= 3 n)
+      (setq str (mapconcat (lambda (s) (capitalize s)) (split-string str "-") ""))))
+    (insert str)))
 
 (provide 'init-clipboard)

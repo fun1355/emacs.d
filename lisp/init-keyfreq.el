@@ -21,13 +21,23 @@
         backward-kill-word
         backward-word
         browse-kill-ring-insert-and-quit
+        browse-kill-ring-forward
         browse-kill-ring-quit
         clipboard-kill-ring-save
         company-complete-common
         company-complete-number
         company-complete-selection
         company-ignore
+        comint-send-input
+        comint-previous-input
         delete-backward-char
+        ;; {{ nothing to optimize in dired
+        dired
+        dired-do-async-shell-command
+        dired-find-file
+        diredp-next-line
+        diredp-previous-line
+        ;; }}
         describe-variable
         erase-message-buffer
         eval-buffer
@@ -49,11 +59,17 @@
         evil-escape-minibuffer
         evil-escape-motion-state
         evil-escape-visual-state
+        evil-goto-definition
+        evil-goto-mark-line
+        evil-jump-backward
+        evil-ex-completion
         evil-ex
         evil-ex-command
         evil-ex-delete-backward-char
         evil-exit-visual-state
+        evil-exit-emacs-state
         evil-find-char
+        evil-find-char-to
         evil-first-non-blank
         evil-force-normal-state
         evil-forward-char
@@ -61,13 +77,25 @@
         evil-forward-word-end
         evil-goto-first-line
         evil-goto-line
+        evil-set-marker
+        evil-filepath-inner-text-object
+        evil-filepath-outer-text-object
+        evil-inner-single-quote
+        evil-inner-double-quote
+        evil-inner-word
+        evil-inner-WORD
+        evil-paste-before
         evil-indent
         evil-insert
         evil-join
         evil-jump-forward
+        evil-mc-make-and-goto-next-match
         evil-next-line
         evil-next-visual-line
         evil-normal-state
+        evil-complete-previous
+        evil-complete-next
+        evil-repeat
         evil-open-below
         evil-paste-after
         evil-previous-line
@@ -83,20 +111,28 @@
         evil-substitute
         evil-visual-char
         evil-visual-line
+        evil-visual-block
         evil-yank
         exit-minibuffer
         ffip
         forward-char
         forward-word
-        helm-keyboard-quit
-        helm-next-line
-        helm-previous-line
+        my-setup-develop-environment
+        gnus
+        gnus-summary-next-page
+        gnus-summary-scroll-up
+        gnus-topic-select-group
+        gnus-summary-exit
+        goto-line
+        pwd
         ido-complete
         ido-delete-backward-updir
         ido-exit-minibuffer
         ido-switch-buffer
         indent-new-comment-line
         isearch-abort
+        isearch-other-meta-char
+        isearch-other-control-char
         isearch-backward-regexp
         isearch-cancel
         isearch-delete-char
@@ -119,7 +155,6 @@
         keyfreq-show
         kill-sentence
         left-char
-        right-char
         minibuffer-complete
         minibuffer-complete-and-exit
         minibuffer-keyboard-quit
@@ -129,6 +164,7 @@
         newline-and-indent
         next-history-element
         next-line
+        hippie-expand
         org-beginning-of-line
         org-ctrl-c-ctrl-c
         org-cycle
@@ -138,6 +174,7 @@
         org-self-insert-command
         org-todo
         package-menu-execute
+        paredit-doublequote
         paredit-backward-delete
         paredit-backward-kill-word
         paredit-close-round
@@ -149,8 +186,19 @@
         previous-line
         push-button
         quit-window
+        right-char
         save-buffer
         save-buffers-kill-terminal
+        web-mode
+        web-mode-jshint
+        web-mode-test
+        web-mode-reload
+        web-mode-reveal
+        web-mode-complete
+        web-mode-navigate
+        web-mode-surround
+        web-mode-tag-beginning
+        web-mode-part-beginning
         scroll-down-command
         scroll-up-command
         select-window-0
@@ -165,7 +213,6 @@
         select-window-9
         self-insert-command
         smarter-move-beginning-of-line
-        smex
         suspend-frame
         term-send-raw
         turnon-keyfreq-mode
@@ -189,5 +236,4 @@
 ;; And use keyfreq-show to see how many times you used a command.
 ;; comment out below line if there is performance impact
 (turnon-keyfreq-mode)
-
 (provide 'init-keyfreq)
