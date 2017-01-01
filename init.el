@@ -116,7 +116,7 @@ We increase this to 16MB by `(my-optimize-gc 16 0.5)` "
 (require 'init-slime)
 (when *emacs24* (require 'init-company))
 ;; (require 'init-stripe-buffer) ;; a bug for me
-;; (require 'init-ocaml) ;; Args out of rangs "", 0, -1
+(require 'init-ocaml) ;; Args out of rangs "", 0, -1
 (require 'init-clojure)
 ;; (require 'init-scheme) ;; a bug for me
 ;; (require 'init-eim) ;;  cannot be idle-required ;; cant open load file: init-eim
