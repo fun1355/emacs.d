@@ -136,14 +136,14 @@ But you may use safer HTTPS instead.")
 (if melpa-use-https-repo
     (setq package-archives
           '(;; uncomment below line if you need use GNU ELPA
-            ;; ("gnu" . "https://elpa.gnu.org/packages/")
+            ("gnu" . "https://elpa.gnu.org/packages/")
             ;; ("org" . "http://orgmode.org/elpa/") ; latest org-mode
             ("my-js2-mode" . "https://raw.githubusercontent.com/redguardtoo/js2-mode/release/")
             ("melpa" . "https://melpa.org/packages/")
             ("melpa-stable" . "https://stable.melpa.org/packages/")))
   (setq package-archives
         '(;; uncomment below line if you need use GNU ELPA
-          ;; ("gnu" . "http://elpa.gnu.org/packages/")
+          ("gnu" . "http://elpa.gnu.org/packages/")
           ;; ("org" . "http://orgmode.org/elpa/") ; latest org-mode
           ("my-js2-mode" . "http://raw.githubusercontent.com/redguardtoo/js2-mode/release/")
           ("melpa" . "http://melpa.org/packages/")
