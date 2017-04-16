@@ -323,6 +323,8 @@ If the character before and after CH is space or tab, CH is NOT slash"
 (define-key evil-normal-state-map (kbd "M-y") 'counsel-browse-kill-ring)
 (define-key evil-normal-state-map (kbd "C-]") 'etags-select-find-tag-at-point)
 (define-key evil-visual-state-map (kbd "C-]") 'etags-select-find-tag-at-point)
+(define-key evil-insert-state-map (kbd "C-x C-n") 'evil-complete-next-line)
+(define-key evil-insert-state-map (kbd "C-x C-p") 'evil-complete-previous-line)
 
 (require 'evil-matchit)
 (global-evil-matchit-mode 1)
@@ -421,7 +423,7 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "df" 'counsel-git-diff-file
        "rjs" 'run-js
        "jsr" 'js-send-region
-       "jsb" '(lambda () (interactive) (js-clear) (js-send-buffer))
+       "jsb" 'js-clear-send-buffer
        "rmz" 'run-mozilla
        "rpy" 'run-python
        "rlu" 'run-lua
@@ -528,7 +530,7 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "xm" 'my-M-x
        "xx" 'er/expand-region
        "xf" 'ido-find-file
-       "xb" 'ido-switch-buffer
+       "xb" 'ivy-switch-buffer-by-pinyin
        "xh" 'mark-whole-buffer
        "xk" 'ido-kill-buffer
        "xs" 'save-buffer
@@ -567,6 +569,7 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "jj" 'scroll-other-window-up
        "yy" 'hydra-launcher/body
        "hh" 'multiple-cursors-hydra/body
+       "gi" 'gist-region ; only workable on my computer
        "tt" 'my-toggle-indentation
        "gs" 'git-gutter:set-start-revision
        "gh" 'git-gutter-reset-to-head-parent
@@ -699,6 +702,22 @@ If the character before and after CH is space or tab, CH is NOT slash"
 ;; change default key bindings (if you want) HERE
 ;; (setq evil-exchange-key (kbd "zx"))
 (evil-exchange-install)
+;; }}
+
+;; {{ evil-lion
+;; After pressing `glip=` or `gl2j=` (gl is the operator, ip or 2j is text object, = separator):
+;; one = 1
+;; three = 3
+;; fifteen = 15
+;;
+;; will become:
+;; one     = 1
+;; three   = 3
+;; fifteen = 15
+;;
+;; If the align separator is / you will be prompted for a regular expression instead of a plain character.
+(require 'evil-lion)
+(evil-lion-install)
 ;; }}
 
 (provide 'init-evil)

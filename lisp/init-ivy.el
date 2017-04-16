@@ -1,3 +1,9 @@
+;; (ivy-mode 1)
+;; not good experience
+;; (setq ivy-use-virtual-buffers t)
+(global-set-key (kbd "C-c C-r") 'ivy-resume)
+(define-key read-expression-map (kbd "C-r") 'counsel-expression-history)
+
 ;; {{ @see http://oremacs.com/2015/04/19/git-grep-ivy/
 (defun counsel-escape (keyword)
   (setq keyword (replace-regexp-in-string "\"" "\\\\\"" keyword))
@@ -144,21 +150,28 @@ It's SLOW when more than 20 git blame process start."
   (insert (concat leading-spaces content))
   (end-of-line))
 
-(defun counsel-git-grep-complete-line (&optional other-grep)
+(defvar counsel-complete-line-use-git t)
+
+(defun counsel-find-quickest-grep ()
+  (let* ((exe (or (executable-find "rg") (executable-find "ag"))))
+    ;; ripgrep says that "-n" is enabled actually not,
+    ;; so we manually add it
+    (if exe (concat exe " -n"))))
+
+(defun counsel-complete-line-by-grep ()
   "Complete line using text from (line-beginning-position) to (point).
 If OTHER-GREP is not nil, we use the_silver_searcher and grep instead."
-  (interactive "P")
+  (interactive)
   (let* ((cur-line (my-line-str (point)))
-         (default-directory (locate-dominating-file
-                             default-directory ".git"))
+         (default-directory (ffip-project-root))
          (keyword (counsel-escape (replace-regexp-in-string "^[ \t]*" "" cur-line)))
          (cmd (cond
-               ((not other-grep)
+               (counsel-complete-line-use-git
                 (format "git --no-pager grep --no-color -P -I -h -i -e \"^[ \\t]*%s\" | sed s\"\/^[ \\t]*\/\/\" | sed s\"\/[ \\t]*$\/\/\" | sort | uniq"
                         keyword))
                (t
-                (concat  (my-grep-cli keyword (if (executable-find "ag") "" "-h")) ; tell grep not to output file name
-                         (if (executable-find "ag") " | sed s\"\/^.*:[0-9]*:\/\/\"" "") ; remove file names for ag
+                (concat  (my-grep-cli keyword (if (counsel-find-quickest-grep) "" "-h")) ; tell grep not to output file name
+                         (if (counsel-find-quickest-grep) " | sed s\"\/^.*:[0-9]*:\/\/\"" "") ; remove file names for ag
                          " | sed s\"\/^[ \\t]*\/\/\" | sed s\"\/[ \\t]*$\/\/\" | sort | uniq"))))
          (leading-spaces "")
          (collection (split-string (shell-command-to-string cmd) "[\r\n]+" t)))
@@ -176,7 +189,7 @@ If OTHER-GREP is not nil, we use the_silver_searcher and grep instead."
                   collection
                   :action (lambda (l)
                             (counsel-replace-current-line leading-spaces l))))))))
-(global-set-key (kbd "C-x C-l") 'counsel-git-grep-complete-line)
+(global-set-key (kbd "C-x C-l") 'counsel-complete-line-by-grep)
 
 (defun counsel-git-grep-yank-line (&optional insert-line)
   "Grep in the current git repository and yank the line.
@@ -369,13 +382,26 @@ Or else, find files since 24 weeks (6 months) ago."
     "history"
     "#*#"
     "*.min.js"
+    "*bundle*.js"
+    "*vendor*.js"
     "*.min.css"
     "*~")
   "File names to ignore when grepping.")
 (defun my-grep-exclude-opts ()
   (cond
+   ((executable-find "rg")
+    (concat "-s --no-heading "
+     (mapconcat (lambda (e) (format "-g='!%s/*'" e))
+                       my-grep-ingore-dirs " ")
+            " "
+            (mapconcat (lambda (e) (format "-g='!*.%s'" e))
+                       my-grep-ingore-file-exts " ")
+            " "
+            (mapconcat (lambda (e) (format "-g='!%s'" e))
+                       my-grep-ingore-file-names " ")))
    ((executable-find "ag")
-    (concat (mapconcat (lambda (e) (format "--ignore-dir='%s'" e))
+    (concat "-s --nocolor --nogroup --silent "
+            (mapconcat (lambda (e) (format "--ignore-dir='%s'" e))
                        my-grep-ingore-dirs " ")
             " "
             (mapconcat (lambda (e) (format "--ignore='*.%s'" e))
@@ -398,8 +424,9 @@ Or else, find files since 24 weeks (6 months) ago."
   (let* (opts cmd)
     (unless extra-opts (setq extra-opts ""))
     (cond
-     ((executable-find "ag")
-      (setq cmd (format "ag -s --nocolor --nogroup --silent %s %s \"%s\" --"
+     ((counsel-find-quickest-grep)
+      (setq cmd (format "%s %s %s \"%s\" --"
+                        (counsel-find-quickest-grep)
                         (my-grep-exclude-opts)
                         extra-opts
                         keyword)))
@@ -411,10 +438,14 @@ Or else, find files since 24 weeks (6 months) ago."
                         keyword))))
     ;; (message "cmd=%s" cmd)
     cmd))
-(defun my-root-dir ()
-  (file-name-as-directory (and (fboundp 'ffip-get-project-root-directory)
-       (ffip-get-project-root-directory))))
 
+(defun my-root-dir ()
+  "If ffip is not installed, use `default-directory'."
+  (file-name-as-directory (or (and (fboundp 'ffip-get-project-root-directory)
+                                   (ffip-get-project-root-directory))
+                              default-directory)))
+
+(defvar my-grep-show-full-directory t)
 (defun my-grep ()
   "Grep at project root directory or current directory.
 If ag (the_silver_searcher) exists, use ag.
@@ -422,9 +453,11 @@ Extended regex is used, like (pattern1|pattern2)."
   (interactive)
   (let* ((keyword (counsel-read-keyword "Enter grep pattern: "))
          (default-directory (my-root-dir))
-         (collection (split-string (shell-command-to-string (my-grep-cli keyword)) "[\r\n]+" t)))
+         (collection (split-string (shell-command-to-string (my-grep-cli keyword)) "[\r\n]+" t))
+         (dir (if my-grep-show-full-directory (my-root-dir)
+                (file-name-as-directory (file-name-base (directory-file-name (my-root-dir)))))))
 
-    (ivy-read (format "matching \"%s\" at %s:" keyword (my-root-dir))
+    (ivy-read (format "matching \"%s\" at %s:" keyword dir)
               collection
               :action `(lambda (line)
                          (let* ((default-directory (my-root-dir)))
@@ -465,6 +498,25 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
     (setq n (1- n))
     (if (< n 0) (setq n 0))
     (my-insert-str (nth n kill-ring)))))
+
+(defun ivy-switch-buffer-matcher-pinyin (regexp candidates)
+  (unless (featurep 'pinyinlib) (require 'pinyinlib))
+  (let* ((pys (split-string regexp "[ \t]+"))
+         (regexp (format ".*%s.*"
+                         (mapconcat 'pinyinlib-build-regexp-string pys ".*"))))
+    (ivy--switch-buffer-matcher regexp candidates)))
+
+(defun ivy-switch-buffer-by-pinyin ()
+  "Switch to another buffer."
+  (interactive)
+  (unless (featurep 'ivy) (require 'ivy))
+  (let ((this-command 'ivy-switch-buffer))
+    (ivy-read "Switch to buffer: " 'internal-complete-buffer
+              :matcher #'ivy-switch-buffer-matcher-pinyin
+              :preselect (buffer-name (other-buffer (current-buffer)))
+              :action #'ivy--switch-buffer-action
+              :keymap ivy-switch-buffer-map
+              :caller 'ivy-switch-buffer)))
 
 (eval-after-load 'ivy
   '(progn

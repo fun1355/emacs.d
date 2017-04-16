@@ -12,7 +12,8 @@
               js2-bounce-indent-p t)
 
 (setq javascript-common-imenu-regex-list
-      '(("Controller" "[. \t]controller([ \t]*['\"]\\([^'\"]+\\)" 1)
+      '(("Attribute" " \\([a-z][a-zA-Z0-9-_]+\\) *= *\{[a-zA-Z0-9_.(), ]+\}\\( \\|$\\)" 1)
+        ("Controller" "[. \t]controller([ \t]*['\"]\\([^'\"]+\\)" 1)
         ("Controller" "[. \t]controllerAs:[ \t]*['\"]\\([^'\"]+\\)" 1)
         ("Filter" "[. \t]filter([ \t]*['\"]\\([^'\"]+\\)" 1)
         ("State" "[. \t]state[(:][ \t]*['\"]\\([^'\"]+\\)" 1)
@@ -285,6 +286,8 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
   (setq auto-mode-alist (cons '("\\.ts\\'" . js2-mode) auto-mode-alist))
   (setq auto-mode-alist (cons '("\\.js\\(\\.erb\\)?\\'" . js2-mode) auto-mode-alist))
   (unless *emacs24old*
+    ;; facebook ReactJS, use Emacs25 to fix component indentation problem
+    ;; @see https://github.com/mooz/js2-mode/issues/291
     (add-to-list 'auto-mode-alist '("\\.jsx\\'" . rjsx-mode))
     (add-to-list 'auto-mode-alist '("components\\/.*\\.js\\'" . rjsx-mode)))
   (add-to-list 'auto-mode-alist '("\\.mock.js\\'" . js-mode))
@@ -293,6 +296,11 @@ Merge RLT and EXTRA-RLT, items in RLT has *higher* priority."
   (setq auto-mode-alist (cons '("\\.js\\(\\.erb\\)?\\'" . js-mode) auto-mode-alist))
   (setq auto-mode-alist (cons '("\\.ts\\'" . js-mode) auto-mode-alist))))
 (add-to-list 'auto-mode-alist '("\\.babelrc\\'" . js-mode))
+
+;; @see https://github.com/felipeochoa/rjsx-mode/issues/33
+(eval-after-load 'rjsx-mode
+  '(progn
+     (define-key rjsx-mode-map "<" nil)))
 
 ;; {{ js-beautify
 (defun js-beautify (&optional indent-size)
@@ -324,6 +332,25 @@ INDENT-SIZE decide the indentation level.
     (goto-char orig-point)))
 ;; }}
 
+;; {{ js-comint
+(defun js-clear-send-buffer ()
+  (interactive)
+  (js-clear)
+  (js-send-buffer))
+;; }}
+
+(defadvice js-jsx-indent-line (after js-jsx-indent-line-after-hack activate)
+  "Workaround sgml-mode and follow airbnb component style."
+  (let* ((cur-line (buffer-substring-no-properties
+                    (line-beginning-position)
+                    (line-end-position))))
+    (if (string-match "^\\( +\\)\/?> *$" cur-line)
+      (let* ((empty-spaces (match-string 1 cur-line)))
+        (replace-regexp empty-spaces
+                        (make-string (- (length empty-spaces) sgml-basic-offset) 32)
+                        nil
+                        (line-beginning-position) (line-end-position))))))
+
 (setq-default js2-additional-externs
               '("$"
                 "$A" ; salesforce lightning component
@@ -338,7 +365,13 @@ INDENT-SIZE decide the indentation level.
                 "app"
                 "assert"
                 "assign"
+                "before"
                 "beforeEach"
+                "after"
+                "afterEach"
+                "documentRef"
+                "global"
+                "Blob"
                 "browser"
                 "by"
                 "clearInterval"

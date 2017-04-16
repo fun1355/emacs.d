@@ -49,8 +49,8 @@
   (require 'init-modeline)
   (require 'cl-lib)
   (require 'init-compat)
-  (require 'init-utils)
   (require 'init-site-lisp) ;; Must come before elpa, as it may provide package.el
+  (require 'init-utils)
 
   ;; Windows configuration, assuming that cygwin is installed at "c:/cygwin"
   ;; (condition-case nil
@@ -115,7 +115,7 @@
   (require 'init-term-mode)
   (require 'init-web-mode)
   (require 'init-slime)
-  (require 'init-ocaml)
+  ;; (require 'init-ocaml)
   (require 'init-clojure)
   (require 'init-company)
   (require 'init-chinese-pyim) ;; cannot be idle-required
@@ -136,13 +136,13 @@
 
   ;; {{ idle require other stuff
   (setq idle-require-idle-delay 2)
-  (setq idle-require-symbols '(init-misc-lazy
+  (setq idle-require-symbols '(init-perforce
+                               init-misc-lazy
                                init-which-func
                                init-fonts
                                init-hs-minor-mode
                                init-writting
                                init-pomodoro
-                               init-emacspeak
                                init-artbollocks-mode
                                init-semantic))
   (idle-require-mode 1) ;; starts loading
