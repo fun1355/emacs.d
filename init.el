@@ -88,7 +88,7 @@
   (require 'init-org)
   (require 'init-css)
   (require 'init-python-mode)
-  (require 'init-sml)
+  ;;(require 'init-sml)
   (require 'init-haskell)
   (require 'init-ruby-mode)
   (require 'init-lisp)
@@ -126,7 +126,7 @@
   ;; projectile costs 7% startup time
 
   ;; misc has some crucial tools I need immediately
-  (require 'init-misc)
+  ;; (require 'init-misc)
 
   ;; comment below line if you want to setup color theme in your own way
   (if (or (display-graphic-p) (string-match-p "256color"(getenv "TERM"))) (require 'init-color-theme))
