@@ -3,6 +3,7 @@
 
 (setq-default js2-use-font-lock-faces t
               js2-mode-must-byte-compile nil
+              js2-strict-trailing-comma-warning nil ; it's encouraged to use trailing comma in ES6
               js2-idle-timer-delay 0.5 ; NOT too big for real time syntax check
               js2-auto-indent-p nil
               js2-indent-on-enter-key nil ; annoying instead useful
@@ -51,10 +52,6 @@
     (my-common-js-setup)
     (setq imenu-create-index-function 'mo-js-imenu-make-index)
     (flymake-mode 1)))
-
-(defun inferior-js-mode-hook-setup ()
-  (add-hook 'comint-output-filter-functions 'js-comint-process-output))
-(add-hook 'inferior-js-mode-hook 'inferior-js-mode-hook-setup t)
 
 (add-hook 'js-mode-hook 'mo-js-mode-hook)
 (eval-after-load 'js-mode
@@ -339,39 +336,35 @@ INDENT-SIZE decide the indentation level.
   (js-send-buffer))
 ;; }}
 
+;; Thanks to Aaron Jensen for cleaner code
 (defadvice js-jsx-indent-line (after js-jsx-indent-line-after-hack activate)
   "Workaround sgml-mode and follow airbnb component style."
-  (let* ((cur-line (buffer-substring-no-properties
-                    (line-beginning-position)
-                    (line-end-position))))
-    (if (string-match "^\\( +\\)\/?> *$" cur-line)
-      (let* ((empty-spaces (match-string 1 cur-line)))
-        (replace-regexp empty-spaces
-                        (make-string (- (length empty-spaces) sgml-basic-offset) 32)
-                        nil
-                        (line-beginning-position) (line-end-position))))))
+  (save-excursion
+    (beginning-of-line)
+    (if (looking-at-p "^ +\/?> *$")
+        (delete-char sgml-basic-offset))))
 
 (setq-default js2-additional-externs
               '("$"
                 "$A" ; salesforce lightning component
                 "$LightningApp" ; salesforce
                 "AccessifyHTML5"
+                "Blob"
+                "FormData"
                 "KeyEvent"
                 "Raphael"
                 "React"
+                "URLSearchParams"
                 "__dirname" ; Node
                 "_content" ; Keysnail
+                "after"
+                "afterEach"
                 "angular"
                 "app"
                 "assert"
                 "assign"
                 "before"
                 "beforeEach"
-                "after"
-                "afterEach"
-                "documentRef"
-                "global"
-                "Blob"
                 "browser"
                 "by"
                 "clearInterval"
@@ -380,6 +373,8 @@ INDENT-SIZE decide the indentation level.
                 "content" ; Keysnail
                 "define"
                 "describe"
+                "documentRef"
+                "global"
                 "display" ; Keysnail
                 "element"
                 "expect"

@@ -11,12 +11,15 @@
   (unless clipboard-only (kill-new msg))
   (my-pclip msg))
 
-(defun cp-filename-of-current-buffer () "Copy file name (NOT full path) into the yank ring and OS clipboard."
-  (interactive)
+(defun cp-filename-of-current-buffer (&optional n)
+  "Copy file name (NOT full path) into the yank ring and OS clipboard.
+If N is not nil, copy file name and line number."
+  (interactive "P")
   (when buffer-file-name
-    (let* ((filename (file-name-nondirectory buffer-file-name)))
-      (copy-yank-str filename)
-      (message "filename %s => clipboard & yank ring" filename))))
+    (let* ((filename (file-name-nondirectory buffer-file-name))
+           (s (if n (format "%s:%s" filename (line-number-at-pos)) filename)))
+      (copy-yank-str s)
+      (message "%s => clipboard&kill-ring" s))))
 
 (defun cp-ffip-ivy-last ()
   "Copy visible keys of `ivy-last' into `kill-ring' and clipboard."
@@ -31,26 +34,26 @@
                 "\n"))
     (message "%d items from ivy-last => clipboard & yank ring" (length ivy-last))))
 
-(defun cp-filename-line-number-of-current-buffer ()
-  "Copy file:line into the yank ring and clipboard"
-  (interactive)
-  (when buffer-file-name
-    (let* ((filename (file-name-nondirectory buffer-file-name))
-           (linenum (save-restriction
-                      (widen)
-                      (save-excursion
-                        (beginning-of-line)
-                        (1+ (count-lines 1 (point))))))
-           (rlt (format "%s:%d" filename linenum)))
-      (copy-yank-str rlt)
-      (message "%s => clipboard & yank ring" rlt))))
-
 (defun cp-fullpath-of-current-buffer ()
   "Copy full path into the yank ring and OS clipboard"
   (interactive)
   (when buffer-file-name
     (copy-yank-str (file-truename buffer-file-name))
     (message "file full path => clipboard & yank ring")))
+
+(defun kill-ring-to-clipboard ()
+  "Copy from `kill-ring' to clipboard."
+  (interactive)
+  (my-select-from-kill-ring (lambda (s)
+                              (let* ((summary (car s))
+                                     (hint " => clipboard" )
+                                     (msg (if (string-match-p "\.\.\.$" summary)
+                                              (substring summary 0 (- (length summary) (length hint)))
+                                            msg)))
+                                ;; cc actual string
+                                (my-pclip (cdr s))
+                                ;; echo
+                                (message "%s%s" msg hint)))))
 
 (defun copy-to-x-clipboard (&optional num)
   "If NUM equals 1, copy the downcased string.
@@ -81,7 +84,8 @@ If NUM equals 4, kill-ring => clipboard."
   "Paste string clipboard.
 If N is 1, we paste diff hunk whose leading char should be removed.
 If N is 2, paste into kill-ring too.
-If N is 3, converted dashed to camelcased then paste."
+If N is 3, converted dashed to camelcased then paste.
+If N is 4, rectangle paste. "
   (interactive "P")
   ;; paste after the cursor in evil normal state
   (when (and (functionp 'evil-normal-state-p)
@@ -90,7 +94,8 @@ If N is 3, converted dashed to camelcased then paste."
              (not (eolp))
              (not (eobp)))
     (forward-char))
-  (let* ((str (my-gclip)))
+  (let* ((str (my-gclip))
+         (fn 'insert))
     (cond
      ((not n)
       ;; do nothing
@@ -100,7 +105,10 @@ If N is 3, converted dashed to camelcased then paste."
      ((= 2 n)
       (kill-new str))
      ((= 3 n)
-      (setq str (mapconcat (lambda (s) (capitalize s)) (split-string str "-") ""))))
-    (insert str)))
+      (setq str (mapconcat (lambda (s) (capitalize s)) (split-string str "-") "")))
+     ((= 4 n)
+      (setq fn 'insert-rectangle)
+      (setq str (split-string str "[\r]?\n"))))
+    (funcall fn str)))
 
 (provide 'init-clipboard)

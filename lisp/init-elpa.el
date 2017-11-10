@@ -1,98 +1,27 @@
+;; emacs24 require calling `package-initialize' explicitly
 (require 'package)
-
-;;------------------------------------------------------------------------------
-;; Patch up annoying package.el quirks
-;;------------------------------------------------------------------------------
-(defadvice package-generate-autoloads (after close-autoloads (name pkg-dir) activate)
-  "Stop package.el from leaving open autoload files lying around."
-  (let ((path (expand-file-name (concat
-                                 ;; name is string when emacs <= 24.3.1,
-                                 (if (symbolp name) (symbol-name name) name)
-                                 "-autoloads.el") pkg-dir)))
-    (with-current-buffer (find-file-existing path)
-      (kill-buffer nil))))
-
-;;------------------------------------------------------------------------------
-;; Add support to package.el for pre-filtering available packages
-;;------------------------------------------------------------------------------
-(defvar package-filter-function nil
-  "Optional predicate function used to internally filter packages used by package.el.
-
-The function is called with the arguments PACKAGE VERSION ARCHIVE, where
-PACKAGE is a symbol, VERSION is a vector as produced by `version-to-list', and
-ARCHIVE is the string name of the package archive.")
-
-(defadvice package--add-to-archive-contents
-  (around filter-packages (package archive) activate)
-  "Add filtering of available packages using `package-filter-function', if non-nil."
-  (when (or (null package-filter-function)
-      (funcall package-filter-function
-         (car package)
-         (funcall (if (fboundp 'package-desc-version)
-          'package--ac-desc-version
-        'package-desc-vers)
-            (cdr package))
-         archive))
-    ad-do-it))
-
-;;------------------------------------------------------------------------------
-;; On-demand installation of packages
-;;------------------------------------------------------------------------------
-(defun require-package (package &optional min-version no-refresh)
-  "Ask elpa to install given PACKAGE."
-  (if (package-installed-p package min-version)
-      t
-    (if (or (assoc package package-archive-contents) no-refresh)
-        (package-install package)
-      (progn
-        (package-refresh-contents)
-        (require-package package min-version t)))))
-
-
-;;------------------------------------------------------------------------------
-;; Standard package repositories
-;;------------------------------------------------------------------------------
-
-;; We include the org repository for completeness, but don't use it.
-;; Lock org-mode temporarily:
-;; (add-to-list 'package-archives '("org" . "http://orgmode.org/elpa/"))
-
-(setq package-archives '(("melpa" . "http://melpa.org/packages/")
-                         ("melpa-stable" . "http://stable.melpa.org/packages/")
-                         ("marmalade" . "http://marmalade-repo.org/packages/")
-                         ("gnu" . "http://elpa.gnu.org/packages/")
-                        ))
-(if (not *emacs24*) (add-to-list 'package-archives '("localelpa" . "~/.emacs.d/localelpa")))
-
-;; Un-comment below line if you download zip file
-;; from https://github.com/redguardtoo/myelpa/archive/master.zip
-;; and extract its content into ~/myelpa/
-;; (setq package-archives '(("myelpa" . "~/myelpa")))
-
-;; Or Un-comment below line if you prefer installing package from https://github.com/redguardtoo/myelpa/ directly
-;; (setq package-archives '(("myelpa" . "https://raw.github.com/redguardtoo/myelpa/master/")))
-
-;; Set it to `t' to use safer HTTPS to download packages
-(defvar melpa-use-https-repo nil
-  "By default, HTTP is used to download packages.
-But you may use safer HTTPS instead.")
+(package-initialize)
 
 
 ;; List of VISIBLE packages from melpa-unstable (http://melpa.org)
 ;; Feel free to add more packages!
 (defvar melpa-include-packages
   '(ace-mc
+    ace-window ; lastest stable is released on year 2014
     bbdb
+    dumb-jump
     color-theme
-    ivy
     js-doc
-    counsel
-    swiper ; abo-abo has not released 9.0 yet, at least he didn't tag master branch
+    ;; {{ since stable v0.9.1 released, we go back to stable version
+    ;; ivy
+    ;; counsel
+    ;; swiper
+    ;; }}
     wgrep
     robe
     groovy-mode
     inf-ruby
-    company ; I won't wait another 2 years for stable
+    ;; company ; I won't wait another 2 years for stable
     simple-httpd
     dsvn
     move-text
@@ -100,8 +29,10 @@ But you may use safer HTTPS instead.")
     findr
     mwe-log-commands
     yaml-mode
+    counsel-gtags ; the stable version is never released
     noflet
     db
+    package-lint
     creole
     web
     idomenu
@@ -112,7 +43,6 @@ But you may use safer HTTPS instead.")
     htmlize
     scratch
     session
-    crontab-mode
     bookmark+
     flymake-lua
     multi-term
@@ -132,24 +62,21 @@ But you may use safer HTTPS instead.")
     company-c-headers)
   "Don't install any Melpa packages except these packages")
 
-;; We include the org repository for completeness, but don't use it.
-;; Lock org-mode temporarily:
 (setq package-archives
       '(;; uncomment below line if you need use GNU ELPA
-        ("gnu" . "https://elpa.gnu.org/packages/")
-        ;; ("org" . "http://orgmode.org/elpa/") ; latest org-mode
+        ;; ("gnu" . "https://elpa.gnu.org/packages/")
         ("localelpa" . "~/.emacs.d/localelpa/")
-        ("my-js2-mode" . "https://raw.githubusercontent.com/redguardtoo/js2-mode/release/")
+        ;; ("my-js2-mode" . "https://raw.githubusercontent.com/redguardtoo/js2-mode/release/") ; github has some issue
+        ;; {{ backup repositories
+        ;; ("melpa" . "http://mirrors.163.com/elpa/melpa/")
+        ;; ("melpa-stable" . "http://mirrors.163.com/elpa/melpa-stable/")
+        ;; }}
         ("melpa" . "https://melpa.org/packages/")
-        ("melpa-stable" . "https://stable.melpa.org/packages/")))
+        ("melpa-stable" . "https://stable.melpa.org/packages/")
+        ))
 
-;; Un-comment below line if your extract https://github.com/redguardtoo/myelpa/archive/master.zip into ~/myelpa/
-;; (setq package-archives '(("myelpa" . "~/myelpa")))
-
-;; Or Un-comment below line if you install package from https://github.com/redguardtoo/myelpa/
-;; (setq package-archives '(("myelpa" . "https://raw.github.com/redguardtoo/myelpa/master/")))
-
-
+;; Un-comment below line if you follow "Install stable version in easiest way"
+;; (setq package-archives '(("myelpa" . "~/projs/myelpa")))
 
 ;;------------------------------------------------------------------------------
 ;; Internal implementation, newbies should NOT touch code below this line!
@@ -218,8 +145,6 @@ But you may use safer HTTPS instead.")
 ;; Fire up package.el and ensure the following packages are installed.
 ;;------------------------------------------------------------------------------
 
-(package-initialize)
-
 (require-package 'async)
 (require-package 'dash) ; required by string-edit
 ; color-theme 6.6.1 in elpa is buggy
@@ -234,12 +159,11 @@ But you may use safer HTTPS instead.")
 (require-package 'haskell-mode)
 (require-package 'gitignore-mode)
 (require-package 'gitconfig-mode)
-(unless *emacs24old*
-  (require-package 'gist))
+(unless *emacs24old* (require-package 'gist))
 (require-package 'wgrep)
 (require-package 'request)
 (require-package 'lua-mode)
-(require-package 'robe)
+(unless *emacs24old* (require-package 'robe))
 (require-package 'inf-ruby)
 (require-package 'workgroups2)
 (require-package 'yaml-mode)
@@ -275,7 +199,6 @@ But you may use safer HTTPS instead.")
 (require-package 'counsel) ; counsel => swiper => ivy
 (require-package 'find-file-in-project)
 (require-package 'counsel-bbdb)
-(require-package 'elpy)
 (require-package 'hl-sexp)
 (require-package 'ibuffer-vc)
 (require-package 'less-css-mode)
@@ -291,7 +214,7 @@ But you may use safer HTTPS instead.")
 (require-package 'unfill)
 (require-package 'w3m)
 (require-package 'idomenu)
-(require-package 'ggtags)
+(require-package 'counsel-gtags)
 (require-package 'buffer-move)
 (require-package 'ace-window)
 (require-package 'cmake-mode)
@@ -321,15 +244,22 @@ But you may use safer HTTPS instead.")
 (require-package 'yasnippet)
 (require-package 'company)
 (require-package 'company-c-headers)
+(require-package 'elpy)
 (require-package 'legalese)
 (require-package 'simple-httpd)
-(require-package 'git-messenger)
-(require-package 'git-gutter)
+;; (require-package 'git-gutter) ; use my patched version
 (require-package 'flx-ido)
 (require-package 'neotree)
-(require-package 'define-word)
 (require-package 'quack) ; for scheme
 (require-package 'hydra)
-;;(require-package 'chinese-pyim)
+(require-package 'ivy-hydra) ; @see https://oremacs.com/2015/07/23/ivy-multiaction/
+(require-package 'pyim)
+(require-package 'web-mode)
+(require-package 'dumb-jump)
+(require-package 'emms)
+(require-package 'package-lint) ; lint package before submit it to MELPA
+(require-package 'iedit)
+(require-package 'ace-pinyin)
+(require-package 'bash-completion)
 
 (provide 'init-elpa)

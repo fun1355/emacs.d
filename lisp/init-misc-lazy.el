@@ -172,26 +172,7 @@ grab matched string, cssize them, and insert into kill ring"
 (defun display-line-number ()
   "display current line number in mini-buffer"
   (interactive)
-  (let (l)
-    (setq l (line-number-at-pos))
-    (message "line number:%d" l)
-    ))
-
-(eval-after-load 'grep
-  '(progn
-     (dolist (v '("auto"
-                  "target"
-                  "node_modules"
-                  "bower_components"
-                  ".sass_cache"
-                  ".cache"
-                  ".git"
-                  ".cvs"
-                  ".svn"
-                  ".hg"
-                  "elpa"))
-       (add-to-list 'grep-find-ignored-directories v))
-     ))
+  (message "line number:%d" (line-number-at-pos)))
 
 ;; {{ unique lines
 (defun uniquify-all-lines-region (start end)
@@ -209,20 +190,6 @@ grab matched string, cssize them, and insert into kill ring"
   "Delete duplicate lines in buffer and keep first occurrence."
   (interactive "*")
   (uniquify-all-lines-region (point-min) (point-max)))
-;; }}
-
-;; {{start dictionary lookup
-;; use below commands to create dicitonary
-;; mkdir -p ~/.stardict/dic
-;; # wordnet English => English
-;; curl http://abloz.com/huzheng/stardict-dic/dict.org/stardict-dictd_www.dict.org_wn-2.4.2.tar.bz2 | tar jx -C ~/.stardict/dic
-;; # Langdao Chinese => English
-;; curl http://abloz.com/huzheng/stardict-dic/zh_CN/stardict-langdao-ec-gb-2.4.2.tar.bz2 | tar jx -C ~/.stardict/dic
-;;
-(setq sdcv-dictionary-simple-list '("朗道英汉字典5.0"))
-(setq sdcv-dictionary-complete-list '("WordNet"))
-(global-set-key (kbd "C-c ; b") 'sdcv-search-pointer)
-(global-set-key (kbd "C-c ; t") 'sdcv-search-input+)
 ;; }}
 
 (defun insert-file-link-from-clipboard ()
@@ -471,6 +438,11 @@ Including indent-buffer, which should not be called automatically on save."
    (savehist-mode 1)))
 ;; }}
 
+;; {{emms
+(require 'emms-setup)
+(emms-all)
+(emms-default-players)
+;; }}
 (provide 'init-misc-lazy)
 ;;; init-misc-lazy.el ends here
 

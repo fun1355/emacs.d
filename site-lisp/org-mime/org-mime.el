@@ -6,8 +6,8 @@
 ;; Maintainer: Chen Bin (redguardtoo)
 ;; Keywords: mime, mail, email, html
 ;; Homepage: http://github.com/org-mime/org-mime
-;; Version: 0.0.6
-;; Package-Requires: ((emacs "24") (cl-lib "0.5"))
+;; Version: 0.0.9
+;; Package-Requires: ((emacs "24.3") (cl-lib "0.5"))
 
 ;; This file is not part of GNU Emacs.
 
@@ -80,10 +80,31 @@
 ;;   (add-hook 'org-mode-hook
 ;;             (lambda ()
 ;;               (local-set-key (kbd "C-c M-o") 'org-mime-org-buffer-htmlize)))
+;;
+;; Extra Tips:
+;; 1. In order to embed image into your mail, use below syntax,
+;; [[/full/path/to/your.jpg]]
+;;
+;; 2. It's easy to add your own emphasis symbol.  For example, in order to render
+;; text between "@" in red color, you can use `org-mime-html-hook':
+;;   (add-hook 'org-mime-html-hook
+;;             (lambda ()
+;;               (while (re-search-forward "@\\([^@]*\\)@" nil t)
+;;                 (replace-match "<span style=\"color:red\">\\1</span>"))))
+;;
+;; 3. Since v0.0.9, the quoted mail uses modern style (like Gmail).
+;; So replyed mail looks clean and modern. If you prefer old style, please set
+;; `org-mime-beautify-quoted-mail' to nil.
 
 ;;; Code:
 (require 'cl-lib)
+(require 'xml)
 (require 'org)
+
+(defcustom org-mime-beautify-quoted-mail t
+  "Beautify quoted mail in more clean HTML, like Gmail."
+  :group 'org-mime
+  :type 'boolean)
 
 (defcustom org-mime-use-property-inheritance nil
   "Non-nil means al MAIL_ properties apply also for sublevels."
@@ -147,14 +168,23 @@ You could use either `org-up-heading-safe' or `org-back-to-heading'.")
 
 (defun org-mime--export-string (s fmt &optional opts)
   "Export string S into HTML format.  OPTS is export options."
-  (if org-mime-debug (message "org-mime--export-string called => %s" opts))
-  ;; we won't export title from org file anyway
-  (if opts (setq opts (plist-put opts 'title nil)))
-  (if (fboundp 'org-export-string-as)
-      ;; emacs24.4+
-      (org-export-string-as s fmt t (if org-mime-export-options org-mime-export-options opts))
-    ;; emacs 24.3
-    (org-export-string s (symbol-name fmt))))
+  (let* (rlt)
+    (if org-mime-debug (message "org-mime--export-string called => %s" opts))
+    ;; we won't export title from org file anyway
+    (if opts (setq opts (plist-put opts 'title nil)))
+    (if (fboundp 'org-export-string-as)
+        ;; emacs24.4+
+        (setq rlt (org-export-string-as s fmt t (if org-mime-export-options org-mime-export-options opts)))
+      ;; emacs 24.3
+      (setq rlt (org-export-string s (symbol-name fmt)))
+      ;; manually remove the drawers, see https://github.com/org-mime/org-mime/issues/3
+      ;; Only happens on Emacs 24.3
+      (let* ((b (string-match ":END:" rlt)))
+        (if (and b (> b 0))
+            (setq rlt (substring-no-properties rlt
+                                               (+ b (length ":END:"))
+                                               (length rlt))))))
+    rlt))
 
 ;; example hook, for setting a dark background in <pre style="background-color: #EEE;"> elements
 (defun org-mime-change-element-style (element style)
@@ -195,18 +225,93 @@ You could use either `org-up-heading-safe' or `org-back-to-heading'.")
                (buffer-string)))))
     (vm "?")))
 
+(defun org-mime-encode-quoted-mail-body ()
+  "Please note quoted mail body could be with reply."
+  (let* ((b (save-excursion
+              (goto-char (point-min))
+              (search-forward-regexp "^[^ ]*&gt; ")
+              (search-backward-regexp "<p>")
+              (line-beginning-position)))
+         (e (save-excursion
+              (goto-char (point-max))
+              (search-backward-regexp "^[^ ]*&gt; ")
+              (search-forward-regexp "</p>")
+              (line-end-position)))
+         (str (format "<div>%s</div>" (buffer-substring-no-properties b e)))
+         (paragraphs (xml-node-children (car (with-temp-buffer
+                                               (insert str)
+                                               (xml--parse-buffer nil nil)))))
+         (is-quoted t)
+         lines
+         (rlt "<blockquote class=\"gmail_quote\" style=\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\">\n<p>\n"))
+    (dolist (p paragraphs)
+      (when (and p (> (length p) 2))
+        (dolist (s p)
+          (when (and s
+                     (not (eq s 'p))
+                     (not (consp s))
+                     (not (string= s "\n")))
+            ;; trim string
+            (setq s (replace-regexp-in-string "\\`[ \t\n]*" "" (replace-regexp-in-string "[ \t\n]*\\'" "" s)))
+            (setq lines (split-string s "\n"))
+            (dolist (l lines)
+              (cond
+               ((string-match "^ *[^ ]*> \\(.*\\)" l)
+                (when (not is-quoted)
+                  (setq rlt (concat rlt "</p>\n<blockquote class=\"gmail_quote\" style=\"margin:0 0 0 .8ex;border-left:1px #ccc solid;padding-left:1ex\">\n<p>\n"))
+                  (setq is-quoted t))
+                (setq rlt (concat rlt (match-string 1 l) "<br />\n")))
+               ((string= l "")
+                (set rlt (concat rlt "<br />")))
+               (t
+                (when is-quoted
+                  (setq rlt (concat rlt "</p>\n</blockquote>\n<p>\n"))
+                  (setq is-quoted nil))
+                (setq rlt (concat rlt l "\n")))))))))
+    (setq rlt (concat rlt (if is-quoted "</p>\n</blockquote>\n" "</p>\n")))
+    (list b e rlt )))
+
+(defun org-mime-cleanup-quoted (html)
+  "Clean up quoted mail in modern UI style."
+  (cond
+   (org-mime-beautify-quoted-mail
+    (let* (info)
+      (with-temp-buffer
+        ;; clean title of quoted
+        (insert (replace-regexp-in-string
+                 "<p>[\n\r]*&gt;&gt;&gt;&gt;&gt; .* == \\([^\r\n]*\\)[\r\n]*</p>"
+                 "<div class=\"gmail_quote\">\\1</div>"
+                 html))
+        (unwind-protect
+            (let (retval)
+              (condition-case ex
+                  (setq info (org-mime-encode-quoted-mail-body))
+                  (setq retval info)
+                ('error (setq info nil)))
+              retval))
+        (cond
+         (info
+          (delete-region (nth 0 info) (nth 1 info))
+          (goto-char (nth 0 info))
+          (insert (nth 2 info))
+          (buffer-substring-no-properties (point-min) (point-max)))
+         (t
+          html)))))
+   (t
+    html)))
+
 (defun org-mime-multipart (plain html &optional images)
   "Markup a multipart/alternative PLAIN with PLAIN and HTML alternatives.
 If html portion of message includes IMAGES they are wrapped in multipart/related part."
   (cl-case org-mime-library
     (mml (concat "<#multipart type=alternative><#part type=text/plain>"
-		  plain
-		  (when images "<#multipart type=related>")
-		  "<#part type=text/html>"
-		  html
-		  images
-		  (when images "<#/multipart>\n")
-		  "<#/multipart>\n"))
+                 plain
+                 (when images "<#multipart type=related>")
+                 "<#part type=text/html>"
+                 (org-mime-cleanup-quoted html)
+                 images
+                 (when images "<#/multipart>\n")
+                 "<#/multipart>\n"))
     (semi (concat
             "--" "<<alternative>>-{\n"
             "--" "[[text/plain]]\n" plain
@@ -365,7 +470,7 @@ and in org formats as mime alternatives."
   (interactive)
   (save-excursion
     (funcall org-mime-up-subtree-heading)
-    (flet ((mp (p) (org-entry-get nil p org-mime-use-property-inheritance)))
+    (cl-flet ((mp (p) (org-entry-get nil p org-mime-use-property-inheritance)))
       (let* ((file (buffer-file-name (current-buffer)))
              (subject (or (mp "MAIL_SUBJECT") (nth 4 (org-heading-components))))
              (to (mp "MAIL_TO"))
