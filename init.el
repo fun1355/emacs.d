@@ -133,7 +133,8 @@
   (require 'init-term-mode)
   (require 'init-web-mode)
   (require 'init-slime)
-  ;; (require 'init-ocaml)
+  (require 'init-ocaml)
+  (require 'init-scheme)
   (require 'init-clojure)
   (require 'init-company)
   (require 'init-chinese) ;; cannot be idle-required
