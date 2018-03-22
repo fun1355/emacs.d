@@ -1,12 +1,19 @@
 ;; {{ shell and conf
 (add-to-list 'auto-mode-alist '("\\.[^b][^a][a-zA-Z]*rc$" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.aspell\\.en\\.pws\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\mimeapps\\.list$" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.editorconfig$" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.meta\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.?muttrc\\'" . conf-mode))
 (add-to-list 'auto-mode-alist '("\\.mailcap\\'" . conf-mode))
 ;; }}
 
+;; Avoid potential lag:
+;; https://emacs.stackexchange.com/questions/28736/emacs-pointcursor-movement-lag/28746
+;; `next-line' triggers the `format-mode-line' which triggers `projectile-project-name'
+;; I use find-file-in-project instead of projectile. So I don't have this issue at all.
+;; Set `auto-window-vscroll' to nil to avoid triggering `format-mode-line'.
+(setq auto-window-vscroll nil)
 
 (add-to-list 'auto-mode-alist '("TAGS\\'" . text-mode))
 (add-to-list 'auto-mode-alist '("\\.ctags\\'" . text-mode))
@@ -50,7 +57,6 @@
               compilation-scroll-output t
               ediff-split-window-function 'split-window-horizontally
               ediff-window-setup-function 'ediff-setup-windows-plain
-              save-interprogram-paste-before-kill t
               grep-highlight-matches t
               grep-scroll-output t
               indent-tabs-mode nil
@@ -78,34 +84,8 @@
     (nconc (split-string (shell-command-to-string "git branch --no-color --all") "\n" t)
            (split-string (shell-command-to-string git-cmd) "\n" t))))
 
-(defun my-git-diff()
-  "Run 'git diff version'."
-  (let* ((default-directory (locate-dominating-file default-directory ".git"))
-         (line (ivy-read "diff current file:" (my-git-versions)))
-         (version (replace-regexp-in-string "^ *\\*? *" "" (car (split-string line "|" t)))))
-    (shell-command-to-string (format "git --no-pager diff %s" version))))
-
-
-(defun my-git-diff-current-file ()
-  "Run 'git diff version:current-file current-file'."
-  (let* ((default-directory (locate-dominating-file default-directory ".git"))
-         (line (ivy-read "diff current file:" (my-git-versions))))
-    (shell-command-to-string (format "git --no-pager diff %s:%s %s"
-                                     (replace-regexp-in-string "^ *\\*? *" "" (car (split-string line "|" t)))
-                                     (file-relative-name buffer-file-name default-directory)
-                                     buffer-file-name))))
 
 (setq ffip-match-path-instead-of-filename t)
-;; I only use git
-(setq ffip-diff-backends '(my-git-diff-current-file
-                           my-git-diff
-                           ;; `git log -p' current file
-                           ("git diff --cached" . "cd $(git rev-parse --show-toplevel) && git diff --cached")
-                           ("git log -p" . (shell-command-to-string (format "cd $(git rev-parse --show-toplevel) && git --no-pager log --date=short -p '%s'"
-                                                                            (buffer-file-name))))
-                           ("git log -Sstring -p" . (shell-command-to-string (format "cd $(git rev-parse --show-toplevel) && git --no-pager log --date=short -S'%s' -p"
-                                                            (read-string "Git search string:"))))
-                           ("diff from `kill-ring'" . (car kill-ring))))
 
 (defun neotree-project-dir ()
   "Open NeoTree using the git root."
@@ -125,7 +105,7 @@
 ;; }}
 
 ;; {{ https://github.com/browse-kill-ring/browse-kill-ring
-(require 'browse-kill-ring)
+(local-require 'browse-kill-ring)
 ;; no duplicates
 (setq browse-kill-ring-display-style 'one-line
       browse-kill-ring-display-duplicates nil
@@ -198,7 +178,7 @@
 (add-hook 'comint-output-filter-functions 'comint-watch-for-password-prompt)
 
 ;; {{ which-key-mode
-(require 'which-key)
+(local-require 'which-key)
 (setq which-key-allow-imprecise-window-fit t) ; performance
 (setq which-key-separator ":")
 (which-key-mode 1)
@@ -423,11 +403,8 @@ See \"Reusing passwords for several connections\" from INFO.
   (interactive)
   (let ((dir (expand-file-name default-directory)))
     (if (not (memq dir load-path))
-        (add-to-list 'load-path dir)
-      )
-    (message "Directory added into load-path:%s" dir)
-    )
-  )
+        (add-to-list 'load-path dir))
+    (message "Directory added into load-path:%s" dir)))
 
 (setq system-time-locale "C")
 
@@ -506,7 +483,6 @@ See \"Reusing passwords for several connections\" from INFO.
 ;; }}
 
 ;; @see http://www.emacswiki.org/emacs/EasyPG#toc4
-;; besides, use gnupg 1.4.9 instead of 2.0
 (defadvice epg--start (around advice-epg-disable-agent disable)
   "Make epg--start not able to find a gpg-agent"
   (let ((agent (getenv "GPG_AGENT_INFO")))
@@ -514,12 +490,14 @@ See \"Reusing passwords for several connections\" from INFO.
     ad-do-it
     (setenv "GPG_AGENT_INFO" agent)))
 
+(setq epa-pinentry-mode 'loopback)
+
 ;; https://github.com/abo-abo/ace-window
 ;; `M-x ace-window ENTER m` to swap window
 (global-set-key (kbd "C-x o") 'ace-window)
 
 ;; {{ move focus between sub-windows
-(require 'window-numbering)
+(local-require 'window-numbering)
 (custom-set-faces '(window-numbering-face ((t (:foreground "DeepPink" :underline "DeepPink" :weight bold)))))
 (window-numbering-mode 1)
 ;; }}
@@ -762,7 +740,8 @@ If no region is selected. You will be asked to use `kill-ring' or clipboard inst
   (message "indent-tabs-mode=%s" indent-tabs-mode))
 
 ;; {{ auto-save.el
-(require 'auto-save)
+(local-require 'auto-save)
+(add-to-list 'auto-save-exclude 'file-too-big-p t)
 (auto-save-enable)
 (setq auto-save-slient t)
 ;; }}
@@ -908,7 +887,7 @@ If no region is selected. You will be asked to use `kill-ring' or clipboard inst
 ;; }}
 
 ;; {{
-(require 'typewriter-mode)
+(local-require 'typewriter-mode)
 (defun toggle-typewriter ()
   "Turn on/off typewriter."
   (interactive)
@@ -938,9 +917,41 @@ If no region is selected. You will be asked to use `kill-ring' or clipboard inst
                   "*.map"
                   "*.bundle.js"
                   "*.min.css"
+                  "tags"
+                  "TAGS"
+                  "GTAGS"
+                  "GRTAGS"
+                  "GPATH"
+                  "cscope.files"
                   "*.json"
                   "*.log"))
        (add-to-list 'grep-find-ignored-files v))))
 ;; }}
+
+;; {{ https://www.emacswiki.org/emacs/EmacsSession better than "desktop.el"
+(setq session-save-file (expand-file-name "~/.emacs.d/.session"))
+(add-hook 'after-init-hook 'session-initialize)
+;; }}
+
+(defun optimize-emacs-startup ()
+  "Speedup emacs startup by compiling."
+  (interactive)
+  (let* ((dir (file-truename "~/.emacs.d/lisp/"))
+         (files (directory-files dir)))
+    (load (file-truename "~/.emacs.d/init.el"))
+    (dolist (f files)
+      (when (string-match-p ".*\.el$" f)
+        (let* ((default-directory dir))
+          (byte-compile-file (file-truename f) t))))))
+
+;; random color theme
+(defun random-color-theme ()
+  "Random color theme."
+  (interactive)
+  (unless (featurep 'counsel) (require 'counsel))
+  (let* ((available-themes (mapcar 'symbol-name (custom-available-themes)))
+         (theme (nth (random (length available-themes)) available-themes)))
+    (counsel-load-theme-action theme)
+    (message "Color theme [%s] loaded." theme)))
 
 (provide 'init-misc)

@@ -72,7 +72,10 @@
 
 (package-initialize)
 (elpy-enable)
-(elpy-use-ipython)
+;; (elpy-use-ipython)
+
+(setq python-shell-interpreter "python"
+      python-shell-interpreter-args "-i")
 
 ; try to automagically figure out indentation
 (autoload 'doctest-mode "doctest-mode" "Python doctest editing mode." t)

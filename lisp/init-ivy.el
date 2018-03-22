@@ -186,16 +186,17 @@ Or else, find files since 24 weeks (6 months) ago."
                           (kill-new val)
                           (message "%s => kill-ring" val)))))
 
-(defun counsel-goto-recent-directory ()
+(defun counsel-recent-dir ()
   "Goto recent directories."
   (interactive)
   (unless recentf-mode (recentf-mode 1))
-  (let* ((collection (delete-dups
-                      (append (mapcar 'file-name-directory recentf-list)
+  (let* ((cands (delete-dups
+                      (append my-dired-directory-history
+                              (mapcar 'file-name-directory recentf-list)
                               ;; fasd history
                               (if (executable-find "fasd")
                                   (split-string (shell-command-to-string "fasd -ld") "\n" t))))))
-    (ivy-read "directories:" collection :action 'dired)))
+    (ivy-read "directories:" cands :action 'dired)))
 
 (defun ivy-occur-grep-mode-hook-setup ()
   ;; no syntax highlight, I only care performance when searching/replacing
@@ -250,12 +251,56 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
 ;; {{ swiper&ivy-mode
 (defun swiper-the-thing ()
   (interactive)
-  (swiper (my-use-selected-string-or-ask "")))
+  ;; better performance on large files than swiper
+  (counsel-grep-or-swiper (my-use-selected-string-or-ask "")))
 
 (global-set-key (kbd "C-s") 'swiper)
 ;; }}
 
 (global-set-key (kbd "C-h v") 'counsel-describe-variable)
 (global-set-key (kbd "C-h f") 'counsel-describe-function)
+
+;; better performance on everything (especially windows), ivy-0.10.0 required
+;; @see https://github.com/abo-abo/swiper/issues/1218
+(setq ivy-dynamic-exhibit-delay-ms 200)
+
+;; {{ input ":" at first to start pinyin search in any ivy-related packages
+(defvar ivy-pinyin-search-trigger-key ":")
+;; @see https://emacs-china.org/t/topic/2432/3
+(defun my-pinyinlib-build-regexp-string (str)
+  (cond
+   ((string= str ".*")
+    ".*")
+   (t
+    (pinyinlib-build-regexp-string str t))))
+
+(defun my-pinyin-regexp-helper (str)
+  (cond
+   ((string= str " ")
+    ".*")
+   ((string= str "")
+    nil)
+   (;; t
+    str)))
+
+(defun pinyin-to-utf8 (str)
+  (when (and (> (length str) 0)
+             (string= (substring str 0 1) ":"))
+    (let* ((collection (split-string (replace-regexp-in-string ivy-pinyin-search-trigger-key
+                                                               ""
+                                                               str) "")))
+      (unless (featurep 'pinyinlib) (require 'pinyinlib))
+      (mapconcat 'my-pinyinlib-build-regexp-string
+                 (delq nil (mapcar 'my-pinyin-regexp-helper
+                                   collection))
+                 ""))))
+
+(defun re-builder-pinyin (str)
+  (or (pinyin-to-utf8 str)
+      (ivy--regex-plus str)))
+
+(setq ivy-re-builders-alist
+      '((t . re-builder-pinyin)))
+;; }}
 
 (provide 'init-ivy)

@@ -1,9 +1,6 @@
 ;; @see https://bitbucket.org/lyro/evil/issue/360/possible-evil-search-symbol-forward
 ;; evil 1.0.8 search word instead of symbol
 (setq evil-symbol-word-search t)
-(require 'undo-tree)
-;; For the motions g; g, and for the last-change-register ., 
-(require 'goto-chg)
 
 ;; @see https://bitbucket.org/lyro/evil/issue/511/let-certain-minor-modes-key-bindings
 (defmacro adjust-major-mode-keymap-with-evil (m &optional r)
@@ -254,12 +251,13 @@ If the character before and after CH is space or tab, CH is NOT slash"
 ;; }}
 
 ;; {{ https://github.com/syl20bnr/evil-escape
-(require 'evil-escape)
-(setq-default evil-escape-delay 0.5)
+(setq-default evil-escape-delay 0.3)
 (setq evil-escape-excluded-major-modes '(dired-mode))
 (setq-default evil-escape-key-sequence "kj")
+;; disable evil-escape when input method is on
 (evil-escape-mode 1)
 ;; }}
+
 
 ;; Move back the cursor one position when exiting insert mode
 (setq evil-move-cursor-back t)
@@ -345,12 +343,14 @@ If the character before and after CH is space or tab, CH is NOT slash"
 (define-key evil-ex-completion-map (kbd "M-n") 'next-complete-history-element)
 
 (define-key evil-normal-state-map "Y" (kbd "y$"))
+;; (define-key evil-normal-state-map (kbd "RET") 'ivy-switch-buffer-by-pinyin) ; RET key is preserved for occur buffer
 (define-key evil-normal-state-map "go" 'goto-char)
 (define-key evil-normal-state-map (kbd "M-y") 'counsel-browse-kill-ring)
 (define-key evil-normal-state-map (kbd "C-]") 'counsel-etags-find-tag-at-point)
 (define-key evil-visual-state-map (kbd "C-]") 'counsel-etags-find-tag-at-point)
 (define-key evil-insert-state-map (kbd "C-x C-n") 'evil-complete-next-line)
 (define-key evil-insert-state-map (kbd "C-x C-p") 'evil-complete-previous-line)
+(define-key evil-insert-state-map (kbd "C-]") 'aya-expand)
 
 ;; the original "gd" or `evil-goto-definition' now try `imenu', `xref', search string to `point-min'
 ;; xref part is annoying because I already use `counsel-etags' to search tag.
@@ -412,7 +412,7 @@ If the character before and after CH is space or tab, CH is NOT slash"
 ;; My frequently used commands are listed here
 ;; For example, for line like `"ef" 'end-of-defun`
 ;;   You can either press `,ef` or `M-x end-of-defun` to execute it
-(require 'general)
+(local-require 'general)
 (general-evil-setup t)
 
 ;; {{ use `,` as leader key
@@ -433,7 +433,6 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "aw" 'ace-swap-window
        "af" 'ace-maximize-window
        "ac" 'aya-create
-       "ae" 'aya-expand
        "zz" 'paste-from-x-clipboard ; used frequently
        "cy" 'strip-convert-lines-into-one-big-string
        "bs" '(lambda () (interactive) (goto-edge-by-comparing-font-face -1))
@@ -449,8 +448,10 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "fn" 'cp-filename-of-current-buffer
        "fp" 'cp-fullpath-of-current-buffer
        "dj" 'dired-jump ;; open the dired from current file
+       "xd" 'ido-dired
        "ff" 'toggle-full-window ;; I use WIN+F in i3
        "ip" 'find-file-in-project
+       "jj" 'find-file-in-project-at-point
        "kk" 'find-file-in-project-by-selected
        "kn" 'find-file-with-similar-name ; ffip v5.3.1
        "fd" 'find-directory-in-project-by-selected
@@ -473,16 +474,18 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "cbu" 'cb-get-url-from-controller
        "ht" 'counsel-etags-find-tag-at-point ; better than find-tag C-]
        "rt" 'counsel-etags-recent-tag
+       "ft" 'counsel-etags-find-tag
        "mm" 'counsel-bookmark-goto
        "mk" 'bookmark-set
        "yy" 'counsel-browse-kill-ring
+       "cf" 'counsel-grep ; grep current buffer
        "gf" 'counsel-git ; find file
        "gg" 'counsel-git-grep-by-selected ; quickest grep should be easy to press
        "gm" 'counsel-git-find-my-file
        "gs" (lambda ()
               (interactive)
               (let* ((ffip-diff-backends
-                      '(("Show git git commit" . (let* ((git-cmd "git --no-pager log --date=short --pretty=format:'%h|%ad|%s|%an'")
+                      '(("Show git commit" . (let* ((git-cmd "git --no-pager log --date=short --pretty=format:'%h|%ad|%s|%an'")
                                                        (collection (split-string (shell-command-to-string git-cmd) "\n" t))
                                                        (item (ffip-completing-read "git log:" collection)))
                                                   (when item
@@ -513,8 +516,6 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "tt" 'dumb-jump-go
        "tb" 'dumb-jump-back
        "tm" 'my-git-timemachine
-       "tdb" 'tidy-buffer
-       "tdl" 'tidy-current-line
        ;; toggle overview,  @see http://emacs.wordpress.com/2007/01/16/quick-and-dirty-code-folding/
        "ov" 'my-overview-of-current-buffer
        "or" 'open-readme-in-git-root-directory
@@ -527,12 +528,26 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "cxi" 'org-clock-in ; `C-c C-x C-i'
        "cxo" 'org-clock-out ; `C-c C-x C-o'
        "cxr" 'org-clock-report ; `C-c C-x C-r'
-       "qq" 'counsel-etags-grep
+       "qq" (lambda (n)
+              (interactive "P")
+              (cond
+               ((not n)
+                (counsel-etags-grep))
+               ((= n 1)
+                ;; grep references of current web component
+                (counsel-etags-grep (format "<%s" (file-name-base buffer-file-name))))
+               ((= n 2)
+                ;; grep web component attribute name
+                (counsel-etags-grep (format "^ *%s[=:]" (or (thing-at-point 'symbol)
+                                                            (read-string "Component attribute name?")))))
+               ((= n 3)
+                ;; grep current file name base
+                (counsel-etags-grep (format "%s" (file-name-nondirectory buffer-file-name))))))
        "dd" 'counsel-etags-grep-symbol-at-point
        "xc" 'save-buffers-kill-terminal
        "rr" 'my-counsel-recentf
        "rh" 'counsel-yank-bash-history ; bash history command => yank-ring
-       "rf" 'counsel-goto-recent-directory
+       "rf" 'counsel-recent-dir
        "da" 'diff-region-tag-selected-as-a
        "db" 'diff-region-compare-with-b
        "di" 'evilmi-delete-items
@@ -581,7 +596,6 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "fa" 'flyspell-auto-correct-word
        "pe" 'flymake-goto-prev-error
        "ne" 'flymake-goto-next-error
-       "fw" 'ispell-word
        "bc" '(lambda () (interactive) (wxhelp-browse-class-or-api (thing-at-point 'symbol)))
        "og" 'org-agenda
        "otl" 'org-toggle-link-display
@@ -644,12 +658,15 @@ If the character before and after CH is space or tab, CH is NOT slash"
 ;; {{ Use `SPC` as leader key
 ;; all keywords arguments are still supported
 (nvmap :prefix "SPC"
+       "pc" 'my-dired-redo-from-commands-history
+       "cc" 'my-dired-redo-last-command
        "ss" 'wg-create-workgroup ; save windows layout
        "se" 'evil-iedit-state/iedit-mode ; start iedit in emacs
        "sc" 'shell-command
        "ll" 'my-wg-switch-workgroup ; load windows layout
        "kk" 'scroll-other-window
        "jj" 'scroll-other-window-up
+       "rt" 'random-color-theme
        "yy" 'hydra-launcher/body
        "hh" 'multiple-cursors-hydra/body
        "gi" 'gist-region ; only workable on my computer
@@ -750,7 +767,7 @@ If the character before and after CH is space or tab, CH is NOT slash"
        "ga" 'w3m-java-search
        "gh" 'w3mext-hacker-search ; code search in all engines with firefox
        "gq" 'w3m-stackoverflow-search
-       "mm" 'mpc-which-song
+       "mw" 'mpc-which-song
        "mn" 'mpc-next-prev-song
        "mp" '(lambda () (interactive) (mpc-next-prev-song t)))
 ;; }}
@@ -816,8 +833,7 @@ If the character before and after CH is space or tab, CH is NOT slash"
 ;; fifteen = 15
 ;;
 ;; If the align separator is / you will be prompted for a regular expression instead of a plain character.
-(require 'evil-lion)
-(evil-lion-install)
+(evil-lion-mode)
 ;; }}
 
 ;; {{ @see https://github.com/syl20bnr/spacemacs/blob/master/doc/DOCUMENTATION.org#replacing-text-with-iedit

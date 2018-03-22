@@ -171,6 +171,10 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
   (or (> (buffer-size) (* 5000 64))
       (> (line-number-at-pos (point-max)) 5000)))
 
+(defun file-too-big-p (file)
+  (> (nth 7 (file-attributes file))
+     (* 5000 64)))
+
 (defun is-buffer-file-temp ()
   (interactive)
   "If (buffer-file-name) is nil or a temp file or HTML file converted from org file"
@@ -196,11 +200,16 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
       (setq rlt nil)))
     rlt))
 
+(defvar my-mplayer-extra-opts ""
+  "Extra options for mplayer (ao or vo setup).  For example,
+you can '(setq my-mplayer-extra-opts \"-ao alsa -vo vdpau\")'.")
+
 (defun my-guess-mplayer-path ()
   (let* ((rlt "mplayer"))
     (cond
      (*is-a-mac* (setq rlt "mplayer -quiet"))
-     (*linux* (setq rlt "mplayer -quiet -stop-xscreensaver"))
+     (*linux*
+      (setq rlt (format "mplayer -quiet -stop-xscreensaver %s" my-mplayer-extra-opts)))
      (*cygwin*
       (if (file-executable-p "/cygdrive/c/mplayer/mplayer.exe")
           (setq rlt "/cygdrive/c/mplayer/mplayer.exe -quiet")
@@ -241,7 +250,7 @@ If N is nil, use `ivy-mode' to browse the `kill-ring'."
                             (cond
                              (*unix*
                               "xsel or xclip")
-                             ((or *cygwin* *wind64*)
+                             ((or *cygwin* *win64*)
                               "cygutils-extra from Cygwin")
                              (t
                               "CLI clipboard tools"))))

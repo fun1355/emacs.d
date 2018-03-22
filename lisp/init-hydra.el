@@ -1,22 +1,27 @@
 ;; @see https://github.com/abo-abo/hydra
+(unless (featurep 'hydra) (require 'hydra))
 
 ;; use similar key bindings as init-evil.el
 (defhydra hydra-launcher (:color blue)
   "
-^Emms^       ^Misc^             ^Typewriter^
+^Emms^       ^Misc^
 ------------------------------------------------
 _r_andom     _t_erm             _E_nable/Disable
 _n_ext       _a_utoComplete     _V_intage/Modern
-_p_revious   _s_ave workgroup
-_P_ause      _l_oad workgroup
-_O_pen       _b_ookmark
-_L_ Playlist Goto book_m_ark
-_q_uit       Undo _v_isualize
+_p_revious   _C_reate workgroup Open recent _f_ile
+_P_ause      _l_oad workgroup   Recent _d_irectory
+_O_pen       _b_ookmark         Last dired _c_ommand
+_L_ Playlist Goto book_m_ark    Dired comand _h_istory
+_S_huffle    Undo _v_isualize
+_q_uit
 "
+  ("c" my-dired-redo-last-command)
+  ("h" my-dired-redo-from-commands-history)
   ("b" bookmark-set)
   ("m" counsel-bookmark-goto)
-  ("r" my-counsel-recentf)
-  ("s" wg-create-workgroup)
+  ("f" my-counsel-recentf)
+  ("d" counsel-recent-dir)
+  ("C" wg-create-workgroup)
   ("l" my-wg-switch-workgroup)
   ("t" ansi-term)
   ("a" toggle-company-ispell)
@@ -29,6 +34,7 @@ _q_uit       Undo _v_isualize
   ("P" emms-pause)
   ("O" emms-play-playlist)
   ("L" emms-playlist-mode-go)
+  ("S" (progn (emms-shuffle) (emms-random)))
   ("q" nil))
 
 (defhydra multiple-cursors-hydra (:color green :hint nil)
@@ -146,10 +152,15 @@ _q_uit       Undo _v_isualize
                (default-directory (file-name-directory video-file)))
           (shell-command (format "periscope.py -l en %s &" (file-name-nondirectory video-file))))
         "1 subtitle")
-       ("cf" (let* ((f (file-truename (dired-file-name-at-point))))
+       ("cc" (let* ((f (file-truename (dired-file-name-at-point))))
                (copy-yank-str f)
-               (message "filename %s => clipboard & yank ring" f)) "Copy filename")
+               (message "filename %s => clipboard & yank ring" f)) "Copy full path")
        ("C" dired-do-copy "cp")
+       ("cf" find-file "Create new file")
+       ("ff" (lambda (regexp)
+               (interactive "sMatching regexp: ")
+               (find-lisp-find-dired default-directory regexp))  "Filter with Regex")
+       ("xq" dired-toggle-read-only "Rename file(s)")
        ("mv" diredp-do-move-recursive "mv")
        ("mk" dired-create-directory "mkdir")
        ("q" nil "Bye"))))
@@ -161,7 +172,8 @@ _q_uit       Undo _v_isualize
 ;; increase and decrease font size in GUI emacs
 ;; @see https://oremacs.com/download/london.pdf
 (when (display-graphic-p)
-  (defhydra hydra-zoom (global-map "C-c")
+  ;; Since we already use GUI Emacs, f2 is definitely available
+  (defhydra hydra-zoom (global-map "<f2>")
     "Zoom"
     ("g" text-scale-increase "in")
     ("l" text-scale-decrease "out")
