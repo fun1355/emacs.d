@@ -1,12 +1,12 @@
-;;; eacl.el --- Auto-complete line(s) by grepping project
+;;; eacl.el --- Auto-complete lines by grepping project
 
-;; Copyright (C) 2017, 2018 Chen Bin
+;; Copyright (C) 2017-2020 Chen Bin
 ;;
-;; Version: 1.1.2
+;; Version: 2.0.4
 
 ;; Author: Chen Bin <chenbin DOT sh AT gmail DOT com>
 ;; URL: http://github.com/redguardtoo/eacl
-;; Package-Requires: ((emacs "24.3") (ivy "0.9.1"))
+;; Package-Requires: ((emacs "24.4"))
 ;; Keywords: abbrev, convenience, matching
 
 ;; This file is not part of GNU Emacs.
@@ -35,34 +35,27 @@
 ;;
 ;; List of commands,
 ;;
-;; `eacl-complete-line' complete line.  You could assign key binding
-;; "C-x C-l" to this command.
+;; `eacl-complete-line' complete single line.
+;; Line candidates are extracted in project root or N level of parent directory.
+;; N is the optional parameter of `eacl-complete-line'.
 ;;
-;; `eacl-complete-statement' completes statement which ends with ";".
-;; For example, input "import" and run this command.
-;;
-;; `eacl-complete-snippet' completes snippets which ends with "}".
-;; For example, input "if" and run this command.
-;;
-;; `eacl-complete-tag' completes HTML tag which ends with ">".
-;; For example, input "<div" and run this command.
+;; `eacl-complete-multiline' completes multiline code or html tag.
 ;;
 ;; Modify `grep-find-ignored-directories' and `grep-find-ignored-files'
 ;; to setup directories and files grep should ignore:
-;;   (eval-after-load 'grep
-;;     '(progn
-;;        (dolist (v '("node_modules"
-;;                     "bower_components"
-;;                     ".sass_cache"
-;;                     ".cache"
-;;                     ".npm"))
-;;          (add-to-list 'grep-find-ignored-directories v))
-;;        (dolist (v '("*.min.js"
-;;                     "*.bundle.js"
-;;                     "*.min.css"
-;;                     "*.json"
-;;                     "*.log"))
-;;          (add-to-list 'grep-find-ignored-files v))))
+;;   (with-eval-after-load 'grep
+;;      (dolist (v '("node_modules"
+;;                   "bower_components"
+;;                   ".sass_cache"
+;;                   ".cache"
+;;                   ".npm"))
+;;        (add-to-list 'grep-find-ignored-directories v))
+;;      (dolist (v '("*.min.js"
+;;                   "*.bundle.js"
+;;                   "*.min.css"
+;;                   "*.json"
+;;                   "*.log"))
+;;        (add-to-list 'grep-find-ignored-files v)))
 ;;
 ;; Or you can setup above ignore options in ".dir-locals.el".
 ;; The content of ".dir-locals.el":
@@ -80,17 +73,14 @@
 ;;                                   "*.log"))
 ;;                        (add-to-list 'grep-find-ignored-files v)))))))
 ;;
-;; GNU Grep v3.1+, Emacs v24.3 and Ivy (https://github.com/abo-abo/swiper)
-;; are required.
+;; "git grep" is automatically used for grepping in git repository.
+;; Please note "git grep" does NOT use `grep-find-ignored-directories' OR
+;; `grep-find-ignored-files'.
 ;;
-;; On macOS:
-;;   - Use HomeBrew (https://brew.sh/) to install latest GNU Grep on macOS
-;;   - Insert `(setq eacl-grep-program "ggrep")' into "~/.emacs".
-;;   - Bundled "BSD Grep" is too outdated to use
-
+;; Set `eacl-git-grep-untracked' if untracked files should be git grepped.
+;;
 
 ;;; Code:
-(require 'ivy)
 (require 'grep)
 (require 'cl-lib)
 
@@ -101,6 +91,11 @@
 (defcustom eacl-grep-program "grep"
   "GNU Grep program."
   :type 'string
+  :group 'eacl)
+
+(defcustom eacl-git-grep-untracked t
+  "Grep untracked files in Git repository."
+  :type 'boolean
   :group 'eacl)
 
 (defcustom eacl-project-root nil
@@ -120,10 +115,14 @@ The callback is expected to return the path of project root."
   :group 'eacl)
 
 (defvar eacl-keyword-start nil
-  "The start position of multi-line keyword.  Internal variable.")
+  "The start position of multiline keyword.  Internal variable.")
 
 (defvar eacl-debug nil
   "Enable debug mode.  Internal variable.")
+
+(defalias 'eacl-complete-statement 'eacl-complete-multiline)
+(defalias 'eacl-complete-snippet 'eacl-complete-multiline)
+(defalias 'eacl-complete-tag 'eacl-complete-multiline)
 
 (defun eacl-relative-path ()
   "Relative path of current file."
@@ -134,20 +133,16 @@ The callback is expected to return the path of project root."
 (defun eacl-get-project-root ()
   "Get project root."
   (or eacl-project-root
+      ;; use projectile to find project root
+      (and (fboundp 'projectile-find-file)
+           (if (featurep 'projectile) t (require 'projectile))
+           (projectile-project-root))
+      ;; use find-file-in-project to find project root
+      (and (fboundp 'ffip-project-root) (ffip-project-root))
+      ;; find project root manually
       (cl-some (apply-partially 'locate-dominating-file
                                 default-directory)
                eacl-project-file)))
-
-(defun eacl-check-grep-version ()
-  "GNU Grep v3.1 is required."
-  (let* ((ver-msg (nth 0 (split-string (shell-command-to-string
-                                        (format "%s --version"
-                                                eacl-grep-program)) "\n")))
-         (valid (and (string-match "GNU grep[^0-9.]*\\([0-9.]*\\)" ver-msg)
-                 (>= (string-to-number (match-string 1 ver-msg)) 3.1))))
-    (unless valid
-      (message "GNU Grep v3.1+ must be installed!"))
-    valid))
 
 ;;;###autoload
 (defun eacl-current-line-info ()
@@ -157,22 +152,25 @@ The callback is expected to return the path of project root."
     (cons (buffer-substring-no-properties b (point))
           (buffer-substring-no-properties b e))))
 
+(defun eacl-current-line-text ()
+  "Current line text."
+  (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+
 (defun eacl-trim-left (s)
   "Remove whitespace at the beginning of S."
   (if (string-match "\\`[ \t\n\r]+" s) (replace-match "" t t s) s))
 
-(defun eacl-encode(s)
-  "Encode S."
-  (setq s (regexp-quote s))
-  ;; Be generic about quotes. Most scrip languages could use either double quotes
+(defun eacl-encode(str)
+  "Encode STR."
+  (setq str (regexp-quote str))
+  ;; 1, Be generic about quotes. Most script languages could use either double quotes
   ;; or single quote to wrap string.
   ;; In this case, we don't care, we just want to get mores candidates for
-  ;; code completion
-  ;; For example, in javascript, `import { Button } from "react-bootstrap` and
+  ;; code completion.
+  ;; For example, in javascript, `import { Button } from "react-bootstrap"` and
   ;; `import { Button } from 'react-bootstrap';` are same.
-  (setq s (replace-regexp-in-string "'" "." s))
-  (setq s (replace-regexp-in-string "\"" "." s))
-  s)
+  ;; 2, white spaces match any string.
+  (replace-regexp-in-string "'\\|\"" "." str))
 
 (defun eacl-shell-quote-argument (argument)
   "Try `shell-quote-argument' ARGUMENT and process special characters."
@@ -188,9 +186,9 @@ The callback is expected to return the path of project root."
     (replace-regexp-in-string
      "\\\\\]" "]"
      (replace-regexp-in-string
-      "[^-0-9a-zA-Z<>{}\[:_./\n()]" "\\\\\\&"
+      "[^-0-9a-zA-Z<>{}\[:_./\n()*]" "\\\\\\&"
       (replace-regexp-in-string
-       "[\n\r\t ]" "[[:space:]]"
+       "[\t ]+" ".*"
        argument))))))
 
 (defun eacl-grep-exclude-opts ()
@@ -207,16 +205,14 @@ The callback is expected to return the path of project root."
 
 ;;;###autoload
 (defun eacl-get-keyword (line)
-  "Get trimmed keyword from CUR-LINE."
-  (let* ((keyword (replace-regexp-in-string "^[ \t]*"
-                                            ""
-                                            line)))
+  "Get trimmed keyword from LINE."
+  (let* ((keyword (replace-regexp-in-string "^[ \t]+\\|[ \t]+$" "" line)))
     (eacl-encode keyword)))
 
-(defun eacl-replace-text (content is-multiline)
-  "Insert CONTENT from `eacl-keyword-start' to current point if IS-MULTILINE is t."
-  (delete-region eacl-keyword-start
-                 (if is-multiline (point) (line-end-position)))
+(defun eacl-replace-text (content end)
+  "Delete current line and insert CONTENT.
+Original text from END is preserved."
+  (delete-region eacl-keyword-start end)
   (insert content))
 
 (defun eacl-clean-summary (s)
@@ -226,7 +222,6 @@ The callback is expected to return the path of project root."
 (defun eacl-multiline-candidate-summary (s)
   "If S is too wide to fit into the screen, return pair summary and S."
   (let* ((w (frame-width))
-         ;; display kill ring item in one line
          (key (eacl-clean-summary s))
          (len (length key))
          (tw (- w 4)))
@@ -259,126 +254,252 @@ Candidates same as KEYWORD in current file is excluded."
   (let* ((cands (split-string (shell-command-to-string cmd) sep t "[ \t\r\n]+"))
          (str (format "%s:1:%s" (eacl-relative-path) keyword))
          rlt)
-    (setq rlt (remove-if `(lambda (e) (string= ,str e)) cands))
+    (setq rlt (cl-remove-if `(lambda (e) (string= ,str e)) cands))
+    (when eacl-debug (message "cands=%s" cands))
     cands))
 
 (defun eacl-clean-candidates (cands)
   "Remove duplicated lines from CANDS."
-  ;; remove the file name and line number
-  (setq cands (mapcar (lambda (e) (replace-regexp-in-string "^[^:]+:[^:]+:"
-                                                            ""
-                                                            e))
-                      cands))
   (delq nil (delete-dups cands)))
 
-(defun eacl-complete-line-or-statement (regex keyword &optional extra)
-  "Complete line or statement according to REGEX.
-If REGEX is nil, we only complete single line.
-If REGEX is not nil, complete statement.
-KEYWORD is used to grep.
-EXTRA is optional information to filter candidates."
-  (let* ((default-directory (or (funcall eacl-project-root-callback) default-directory))
-         (quoted-keyword (eacl-shell-quote-argument keyword))
-         ;; Without `-z` multi-line grep will fail.
-         ;; The side-effect of `-z` is the we basically can't get line number
-         ;; The best algorithm is remove any match in current file
-         (cmd (format (if regex "%s -rszonI %s -- \"%s\" *" "%s -rshI %s -- \"%s\" *")
-                      eacl-grep-program
-                      (eacl-grep-exclude-opts)
-                      (if regex (concat quoted-keyword regex) quoted-keyword)))
-         ;; Grep option "-z" outputs null character at the end of each candidate
-         (sep (if regex "\x0" "[\r\n]+"))
-         (orig-collection (eacl-get-candidates cmd sep keyword))
-         (collection (eacl-clean-candidates orig-collection))
-         (rlt t))
+(defun eacl-git-p (path)
+  "Return non-nil if PATH is in a git repository."
+  (zerop (call-process "git" nil nil nil "ls-files" "--error-unmatch" path)))
 
-    (when extra
-      ;; Please note when EXTRA is not nil,
-      ;; we are completing single line only
-      ;; filter out candidate similar to current line
-      (let* ((line (eacl-trim-string (cdr extra))))
-        (setq collection (delq nil (mapcar
-                                    `(lambda (s) (unless (string= s ,line) s))
-                                    collection)))))
-    (when collection
+(defun eacl-search-command (search-regex multiline-p)
+  "Return a shell command searching for SEARCH-REGEX.
+If MULTILINE-P is t, command is for multiline matching."
+  (let* ((git-p (and (buffer-file-name)
+                     (eacl-git-p (buffer-file-name))))
+         (git-grep-opts (concat "-I --no-color"
+                                (if eacl-git-grep-untracked " --untracked"))))
+    ;; (setq git-p nil) ; debug
+    (cond
+     (multiline-p
       (cond
-       ((and extra (= 1 (length collection)))
-        ;; single line, just complete it now
-        (eacl-replace-text (car collection) regex))
+       (git-p
+        (format "git grep -n %s \"%s\"" git-grep-opts search-regex))
+       (t
+        (format "%s -rsnI %s -- \"%s\" ."
+                eacl-grep-program
+                (eacl-grep-exclude-opts)
+                search-regex))))
 
-       ((and (= 1 (length orig-collection))
-             (= 1 (length collection)))
-        ;; multiple lines but there is only one candidate
-        (eacl-replace-text (car collection) regex))
+     ;; git-grep does not support multiline searches.
+     ((and (buffer-file-name) (eacl-git-p (buffer-file-name)))
+      (format "git grep -h %s \"%s\"" git-grep-opts search-regex))
 
-       ((> (length collection) 1)
-        ;; uniq
-        (when regex
-          (setq collection (mapcar 'eacl-multiline-candidate-summary collection)))
-        (ivy-read "candidates:"
-                  collection
-                  :action (lambda (l)
-                            (if (consp l) (setq l (cdr l)))
-                            (eacl-replace-text l regex))))))
-    (unless collection (setq rlt nil))
+     (t
+      (cond
+       (git-p
+        (format "git grep -h %s \"%s\"" git-grep-opts search-regex))
+       (t
+        (format "%s -rshI %s -- \"%s\" ."
+                eacl-grep-program
+                (eacl-grep-exclude-opts)
+                search-regex)))))))
+
+
+(defun eacl-parent-directory (n directory)
+  "Return N - 1 level parent directory of DIRECTORY."
+  (let* ((rlt directory))
+    (while (and (> n 1) (not (string= "" rlt)))
+      (setq rlt (file-name-directory (directory-file-name rlt)))
+      (setq n (1- n)))
+    (if (string= "" rlt) (setq rlt nil))
     rlt))
+
+(defun eacl-complete-line-directory (&optional n)
+  "Get directory to grep text with N."
+  (cond
+   ((and n (> n 0))
+    (eacl-parent-directory n default-directory))
+
+   (t
+    (or (funcall eacl-project-root-callback)
+        default-directory))))
+
+(defun eacl-hint (time)
+  "Hint for candidates since TIME."
+  (format "candidates (%.01f seconds): "
+          (float-time (time-since time))))
+
+(defun eacl-complete-line-internal (keyword extra &optional n)
+  "Grep with KEYWORD, EXTRA information and N level parent directory."
+  (let* ((default-directory (eacl-complete-line-directory n))
+         (cmd (eacl-search-command (eacl-shell-quote-argument keyword) nil))
+         (orig-collection (eacl-get-candidates cmd "[\r\n]+" keyword))
+         (line (eacl-trim-string (cdr extra)))
+         (collection (delq nil (mapcar `(lambda (s) (unless (string= s ,line) s))
+                                       (eacl-clean-candidates orig-collection))))
+         selected
+         (line-end (line-end-position))
+         (time (current-time)))
+
+    (if eacl-debug (message "cmd=%s" cmd))
+
+    (cond
+     ((or (not collection) (= 0 (length collection)))
+      (message "No single line match was found!"))
+     ((and extra (= 1 (length collection)))
+      ;; one candidate, just complete it now
+      (eacl-replace-text (car collection) line-end))
+     (t
+      (when (setq selected (completing-read (eacl-hint time) collection))
+        (eacl-replace-text selected line-end))))))
 
 (defun eacl-line-beginning-position ()
   "Get line beginning position."
   (save-excursion (back-to-indentation) (point)))
 
-
-;;;###autoload
-(defun eacl-complete-multi-lines-internal (regex)
-  "Complete multi-lines.  REGEX is used to match the lines."
-  (let* ((keyword (eacl-get-keyword (car (eacl-current-line-info))))
-         (eacl-keyword-start (eacl-line-beginning-position))
-         (continue (eacl-check-grep-version)))
-    (while continue
-      (unless (eacl-complete-line-or-statement regex
-                                               keyword)
-        (message "Auto-completion done!")
-        (setq continue nil))
+(defun eacl-ensure-no-region-selected ()
+  "If region is selected, delete text out of selected region."
+  (when (region-active-p)
+    (let* ((b (region-beginning))
+           (e (region-end)))
+      ;; delete text outside of selected region
       (cond
-       (continue
-        (when (fboundp 'xref-pulse-momentarily)
-          (xref-pulse-momentarily))
-        (when (setq continue (yes-or-no-p "Continue?"))
-          (setq keyword (eacl-encode (eacl-trim-left (buffer-substring-no-properties eacl-keyword-start
-                                                                                     (point)))))))
+       ((or (< b (line-beginning-position))
+            (< (line-end-position) e))
+        (error "Please select region inside current line!"))
        (t
-        (setq continue nil))))
-    (setq eacl-keyword-start nil)))
+        (delete-region e (line-end-position))
+        (delete-region (line-beginning-position) b)))
+
+      ;; de-select region and move focus to region end
+      (when (and (boundp 'evil-mode) evil-mode (eq evil-state 'visual))
+        (evil-exit-visual-state)
+        (evil-insert-state))
+      (goto-char (line-end-position)))))
 
 ;;;###autoload
-(defun eacl-complete-line ()
-  "Complete line by grepping project."
-  (interactive)
+(defun eacl-complete-line (&optional n)
+  "Complete line by grepping in root or N level parent directory.
+The selected region will replace current line first.
+The text from line beginning to current point is used as grep keyword.
+Whitespace in the keyword could match any characters."
+  (eacl-ensure-no-region-selected)
+  (interactive "P")
   (let* ((cur-line-info (eacl-current-line-info))
          (cur-line (car cur-line-info))
          (eacl-keyword-start (eacl-line-beginning-position))
          (keyword (eacl-get-keyword cur-line)))
-    (eacl-complete-line-or-statement nil keyword cur-line-info)
+
+    ;; Run "C-u eacl-complete-line"
+    (when (and n (not (numberp n)))
+      (setq n 1))
+
+    (eacl-complete-line-internal keyword cur-line-info n)
     (setq eacl-keyword-start nil)))
 
-;;;###autoload
-(defun eacl-complete-statement ()
-  "Complete statement which ends with \";\" by grepping project."
-  (interactive)
-  (eacl-complete-multi-lines-internal "[^;]*;"))
+(defmacro eacl-find-multiline-end (indentation)
+  "Find next line with same INDENTATION."
+  `(let* ((rlt (re-search-forward ,indentation (point-max) t)))
+     (if rlt (line-end-position))))
+
+(defun eacl-html-p ()
+  "Is html related mode."
+  (or (memq major-mode '(web-mode rjsx-mode xml-mode js2-jsx-mode))
+      (derived-mode-p 'sgml-mode)))
+
+(defun eacl-extract-matched-multiline (line linenum file &optional html-p)
+  "Extract matched lines start from LINE at LINENUM in FILE.
+If HTML-P is not t, current `major-mode' support html tags.
+Return (cons multiline-text end-line-text) or nil."
+  (if eacl-debug (message "eacl-extract-matched-multiline called => %s %s %s %s" line linenum file html-p))
+  (let* ((beg (line-beginning-position))
+         end
+         rlt)
+    (when (string-match "^\\([ \t]*\\)\\(.*\\)*" line)
+      (let* ((case-fold-search nil)
+             (leading-whitespaces (match-string 1 line))
+             (pattern (concat "^" leading-whitespaces "[^ \t\r\n]"))
+             end-line
+             (continue t)
+             line)
+        (save-excursion
+          (while continue
+            ;; skip current line which is already processed
+            (forward-line)
+            (goto-char (line-beginning-position))
+
+            (cond
+             ((not (setq end (eacl-find-multiline-end pattern)))
+              ;; no multiline candidate, quit
+              (setq continue nil))
+             (t
+              (goto-char end)
+              (setq line (eacl-current-line-text))
+              (when (and (not (string-match "^[ \t]*[\\[{(][ \t]*$" line))
+                         (not (and html-p
+                                   ;; eng html tag can't be ">"
+                                   (string-match "^[ \t]*>[ \t]*$" line))))
+                ;; candidate found!
+                (setq rlt (buffer-substring-no-properties beg end))
+                (setq continue nil))))))))
+    (if eacl-debug (message "rlt=%s" rlt))
+    rlt))
 
 ;;;###autoload
-(defun eacl-complete-snippet ()
-  "Complete snippet which ends with \"}\" by grepping in project."
+(defun eacl-complete-multiline ()
+  "Complete multi-line code or html tag.
+The selected region will replace current line first.
+The text from line beginning to current point is used as grep keyword.
+Whitespace in keyword could match any characters."
   (interactive)
-  (eacl-complete-multi-lines-internal "[^}]*}"))
-
-;;;###autoload
-(defun eacl-complete-tag ()
-  "Complete snippet which ends with \">\" by grepping in project."
-  (interactive)
-  (eacl-complete-multi-lines-internal "[^>]*>"))
+  (eacl-ensure-no-region-selected)
+  (let* ((orig-linenum (count-lines 1 (point)))
+         (orig-file (and buffer-file-name (file-truename buffer-file-name)))
+         (eacl-keyword-start (eacl-line-beginning-position))
+         (keyword (eacl-get-keyword (car (eacl-current-line-info))))
+         (default-directory (or (funcall eacl-project-root-callback) default-directory))
+         (cmd (eacl-search-command (eacl-shell-quote-argument keyword) t))
+         (time (current-time))
+         (orig-collection (eacl-get-candidates cmd "[\r\n]+" keyword))
+         (line-end (line-end-position))
+         (html-p (eacl-html-p))
+         rlt
+         cached-file-name
+         cached-file-content)
+    (when orig-collection
+      (dolist (item orig-collection)
+        (when (string-match "\\`\\([^:]+\\):\\([0-9]+\\):\\([^:]+\\)\\'" item)
+          (let* ((strs (split-string item ":"))
+                 (file (car strs))
+                 (linenum (string-to-number (nth 1 strs)))
+                 (line (nth 2 strs))
+                 cand)
+            (when (or (not (string= file orig-file))
+                      (not (= linenum orig-linenum)))
+              ;; item's format is like '~/proj1/ab.el:39: (defun hello() )'
+              (with-temp-buffer
+                (cond
+                 ((or (not (string= cached-file-name file))
+                      (not cached-file-content))
+                  (insert-file-contents file)
+                  (setq cached-file-name file)
+                  (setq cached-file-content (buffer-string)))
+                 (t
+                  (insert cached-file-content)))
+                (goto-char (point-min))
+                (forward-line (1- linenum))
+                (goto-char (line-beginning-position))
+                (when (setq cand (eacl-extract-matched-multiline line
+                                                                 linenum
+                                                                 file
+                                                                 html-p))
+                  (when eacl-debug (message "cand=%s" cand))
+                  (add-to-list 'rlt cand)))))))
+      (cond
+       ((or (not rlt) (= (length rlt)  0))
+        (message "No multiline match was found!"))
+       ((= (length rlt) 1)
+        (eacl-replace-text (car rlt) line-end))
+       (t
+        (let* ((cands (mapcar 'eacl-multiline-candidate-summary rlt))
+               (selected (completing-read (eacl-hint time) cands)))
+          (when selected
+            (eacl-replace-text (cdr (assoc selected cands)) line-end))))))))
 
 (provide 'eacl)
 ;;; eacl.el ends here
-

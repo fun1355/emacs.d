@@ -1,3 +1,5 @@
+;; -*- coding: utf-8; lexical-binding: t; -*-
+
 (defun show-scratch-buffer-message ()
   (let* ((fortune-prog (or (executable-find "fortune-zh")
                            (executable-find "fortune"))))
@@ -17,23 +19,11 @@
 
 (setq-default initial-scratch-message (show-scratch-buffer-message))
 
-;; racket
-(add-to-list 'auto-mode-alist '("\\.rkt\\'" . lisp-mode))
-
-;; {{ scheme setup
-(setq scheme-program-name "guile")
-(eval-after-load 'scheme-mode
-  '(progn
-     (require 'quack)))
-;; }}
-
 ;; A quick way to jump to the definition of a function given its key binding
 (global-set-key (kbd "C-h K") 'find-function-on-key)
 
-(eval-after-load 'paredit
-  '(progn
-     (diminish 'paredit-mode " Par")))
-
+(with-eval-after-load 'paredit
+  (diminish 'paredit-mode " Par"))
 
 (defvar paredit-minibuffer-commands '(eval-expression
                                       pp-eval-expression
@@ -41,15 +31,6 @@
                                       ibuffer-do-eval
                                       ibuffer-do-view-and-eval)
   "Interactive commands for which paredit should be enabled in the minibuffer.")
-
-;; ----------------------------------------------------------------------------
-;; Highlight current sexp
-;; ----------------------------------------------------------------------------
-;; Prevent flickery behaviour due to hl-sexp-mode unhighlighting before each command
-(eval-after-load 'hl-sexp
-  '(defadvice hl-sexp-mode (after unflicker (turn-on) activate)
-     (when turn-on
-       (remove-hook 'pre-command-hook #'hl-sexp-unhighlight))))
 
 ;; ----------------------------------------------------------------------------
 ;; Enable desired features for all lisp modes

@@ -1,18 +1,32 @@
-;;; org2nikola --- create HTML for static blog generator Nikola from Org
+;;; org2nikola --- Convert Org to HTML for static blog generator Nikola
 
-;; Copyright (C) 2012 Chen Bin
-;; Author: Chen Bin <chenbin.sh@gmail.com>
+;; Copyright (C) 2012-2020 Chen Bin
+;; Author: Chen Bin <chenbin DOT sh AT gmail DOT com>
 ;; URL: http://github.com/redguardtoo/org2nikola
 ;; Keywords: blog static html export org
-;; Version: 0.1.6
+;; Version: 0.2.1
+;; Package-Requires: ((emacs "24.4"))
 
-;; This file is not part of GNU Emacs.
+;;; License:
 
-;; This file is free software (GPLv3 License)
+;; This file is part of evil-matchit
+;;
+;; This program is free software: you can redistribute it and/or
+;; modify it under the terms of the GNU General Public License as published
+;; by the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+;;
+;; evil-matchit is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+;;
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
-;; Setup:
+;; Configuration:
 ;;
 ;; (add-to-list 'load-path "~/.emacs.d/lisp/nikola")
 ;; (require 'org2nikola)
@@ -31,8 +45,14 @@
 ;; You can `(setq org2nikola-use-verbose-metadata t)` because nikola7.7
 ;; requires more verbose meta data.
 ;;
-;;  Check https://github.com/redguardtoo/org2nikola for tips on
-;;  how to use git or FTP to upload HTML files.
+;; Tips:
+;;  - use `org2nikola-process-output-html-function' to customize the final
+;;    html output of blog post
+;;  - use `org2nikola-after-hook' to push the updated blog post to ftp or
+;;    git server
+;;
+;; Check  https://github.com/redguardtoo/org2nikola for more tips.
+;;
 
 ;;; Code:
 (require 'org)
@@ -45,16 +65,23 @@
   "Produce more verbose metadata required by new version of nikola 7.7+.
 `nikola plugin -i upgrade_metadata;nikola upgrade_metadata' to upgrade legacy metadata.")
 
-(defvar org2nikola-code-prettify-type "highlight.js"
-  "Renderred code for certain type. could be nil,
-\"google-prettify\", \"highlight.js\".")
-
 (defvar org2nikola-prettify-unsupported-language
-  '(elisp "lisp"
-    emacs-lisp "lisp"))
+  '(conf "ini"
+    rjsx "jsx"
+    elisp "lisp"
+    emacs-lisp "lisp")
+  "Render unknown syntax in supported language syntax.")
+
+(defvar org2nikola-process-output-html-function
+  (lambda (html title post-slug)
+    (ignore title post-slug)
+    html)
+  "Function used to customize the final output html.
+Html output, title, and post slug is passed into it as parameters.
+It should return the updated html.")
 
 (defcustom org2nikola-after-hook nil
-  "Hook after HTML files are created. title and slug are pass as parameters."
+  "Hook after HTML files are created.  Title and slug are pass as parameters."
   :type 'hook
   :group 'org2nikola)
 
@@ -466,7 +493,10 @@
     ("zun" "尊" "遵" "樽" "鳟" "撙")
     ("zuo" "作" "做" "坐" "座" "左" "昨" "琢" "佐" "凿" "撮" "柞" "嘬" "怍" "胙" "唑" "笮" "阼" "祚" "酢")))
 
+(defvar org-plain-link-re)
+
 (defun org2nikola--zh-char-to-pinyin (ch)
+  "Convert Chinese character CH to pinyin."
   (catch 'break
     (let* ((i 0)
            item
@@ -478,6 +508,7 @@
         (setq i (1+ i))))))
 
 (defun org2nikola--char-to-string (ch)
+  "Convert character CH to string."
   (let* ((chspc 32)
          (chsq 39)
          (ch0 48)
@@ -507,21 +538,31 @@
       (setq rlt "-")))
     rlt))
 
-(defun org2nikola-trim-string (string)
-  (replace-regexp-in-string "\\`[ \t\n]*" "" (replace-regexp-in-string "[ \t\n]*\\'" "" string)))
-
 (defun org2nikola-get-slug (str)
-    (setq str (mapconcat 'org2nikola--char-to-string str ""))
-    ;; clean slug little bit
-    (setq str (replace-regexp-in-string "\-\-+" "-" str))
-    (setq str (replace-regexp-in-string "^\-+" "" str))
-    (setq str (replace-regexp-in-string "\-+$" "" str))
-    (setq str (org2nikola-trim-string str))
-    (setq str (downcase str))
-    str)
+  "Get post slug from STR."
+  (setq str (mapconcat 'org2nikola--char-to-string str ""))
+  ;; clean slug little bit
+  (setq str (replace-regexp-in-string "\-\-+" "-" str))
+  (setq str (replace-regexp-in-string "^\-+" "" str))
+  (setq str (string-trim (replace-regexp-in-string "\-+$" "" str)))
+  (setq str (downcase str))
+  str)
+
+(defun org2nikola-line ()
+  "Get current line content."
+  (buffer-substring-no-properties (line-beginning-position) (line-end-position)))
+
+(defun org2nikola-select-region (begin end)
+  "Select region between BEGIN and END."
+  (goto-char begin)
+  (set-mark-command nil)
+  (goto-char end)
+  (setq deactivate-mark nil))
 
 (defun org2nikola-export-into-html-text ()
+  "Export current org element into html."
   (let* (html-text
+         cur-line
          ;; Emacs 25+ prefer exporting drawer by default
          ;; obviously not acception in exporting to mail body
          (org-export-with-drawers nil)
@@ -529,12 +570,17 @@
          e)
     (save-excursion
       (org-mark-element)
-      (forward-line) ;; donot export title
-      (setq b (region-beginning))
+      ;; donot export title
+      (forward-line)
+      ;; skip attributes
+      (while (string-match-p "^ *:[A-Z_]+:" (org2nikola-line))
+        (forward-line))
+      (setq b (line-beginning-position))
       (setq e (region-end)))
 
     ;; org-export-as will detect active region and narrow to the region
     (save-excursion
+      (org2nikola-select-region b e)
       (setq html-text
             (cond
              ((version-list-< (version-to-list (org-version)) '(8 0 0))
@@ -546,11 +592,13 @@
     html-text))
 
 (defun org2nikola-fix-unsupported-language (lang)
+  "Fix supported language LANG by code prettifier."
   (if (plist-get org2nikola-prettify-unsupported-language (intern lang))
       (setq lang (plist-get org2nikola-prettify-unsupported-language (intern lang))))
   lang)
 
 (defun org2nikola-guess-output-html-directory ()
+  "Guess the directory to place output html file."
   (let* ((rlt (concat (file-name-as-directory org2nikola-output-root-directory)
                       "posts")))
     (if (not (file-exists-p (expand-file-name rlt)))
@@ -558,6 +606,7 @@
     (file-name-as-directory rlt)))
 
 (defun org2nikola-guess-output-image-directory ()
+  "Guess the directory to place image."
   (let* ((rlt (concat (file-name-as-directory org2nikola-output-root-directory)
                       "files/wp-content")))
     (if (not (file-exists-p (expand-file-name rlt)))
@@ -565,18 +614,25 @@
     (file-name-as-directory rlt)))
 
 (defun org2nikola-get-full-url (local-file org-directory)
+  "Get full url from LOCAL-FILE and ORG-DIRECTORY."
   (let* ((source-file-full-path (file-truename (concat org-directory local-file)))
          (dst-file-full-path (concat
                               (org2nikola-guess-output-image-directory)
                               (file-name-nondirectory source-file-full-path)))
          (final-url (concat "/wp-content/" (file-name-nondirectory local-file))))
-    (copy-file source-file-full-path dst-file-full-path t)
+    (cond
+     ((file-exists-p source-file-full-path)
+      (copy-file source-file-full-path dst-file-full-path t))
+     (t
+      (setq final-url nil)))
     final-url))
 
-(defun org2nikola-replace-urls (text org-directory)
-  "Render media files in HTML and change their links."
-  (let* ((file-all-urls nil)
-         file-name file-web-url beg
+(defun org2nikola-replace-url (text org-directory)
+  "Render media file in HTML and update it link using TEXT and ORG-DIRECTORY."
+  (let* (file-all-urls
+         file-name
+         file-web-url
+         beg
          (file-regexp "<a href=\"\\(.?*\\)\"\\|<img src=\"\\(.*?\\)\""))
     (save-excursion
       (while (string-match file-regexp text beg)
@@ -588,17 +644,15 @@
                                              (substring file-name 7)
                                            file-name)))
         (setq beg (match-end 0))
-        (if (save-match-data (not (or
-                                   (string-match org-plain-link-re file-name)
-                                   (string-match "^#" file-name)
-                                   (string-equal (file-name-nondirectory file-name) ""))))
-
-            (progn
-              (setq file-web-url (org2nikola-get-full-url file-name org-directory))
-              (setq file-all-urls
-                    (append file-all-urls (list (cons
-                                                 file-name file-web-url)))))))
-      ;; replace urls in file-all-urls
+        ;; file-name could be a link to a tag
+        (when (and (save-match-data (not (or (string-match org-plain-link-re file-name)
+                                             (string-match "^#" file-name)
+                                             (string-equal (file-name-nondirectory file-name) ""))))
+                   (setq file-web-url (org2nikola-get-full-url file-name org-directory)))
+          (setq file-all-urls
+                (append file-all-urls (list (cons
+                                             file-name file-web-url))))))
+      ;; replace url in file-all-urls
       (dolist (file file-all-urls)
         (setq text (replace-regexp-in-string
                     (concat "\\(<a href=\"\\|<img src=\"\\)\\(file://\\)*"
@@ -614,7 +668,7 @@
     text))
 
 (defun org2nikola-replace-pre (html)
-  "Replace pre blocks with sourcecode shortcode blocks.
+  "Replace pre blocks with source code shortcode blocks in HTML.
 Shamelessly copied from org2blog/wp-replace-pre()."
   (save-excursion
     (let* (pos code lang info params header code-start code-end html-attrs pre-class)
@@ -624,7 +678,7 @@ Shamelessly copied from org2blog/wp-replace-pre()."
         (save-match-data
           (while (re-search-forward "<pre\\(.*?\\)>" nil t 1)
 
-            ;; When the codeblock is a src_block
+            ;; When the code block is a src_block
             (unless
                 (save-match-data
                   (setq pre-class (match-string-no-properties 1))
@@ -645,23 +699,12 @@ Shamelessly copied from org2blog/wp-replace-pre()."
               (delete-region code-start code-end)
               ;; Stripping out all the code highlighting done by htmlize
               (setq code (replace-regexp-in-string "<.*?>" "" code))
-              (cond
-               ((string= org2nikola-code-prettify-type "google-prettify")
-                ;; google prettify
-                ;; class linenums will add stripes which will destory the 3rd party skins
-                (insert (concat "\n<pre class=\"prettyprint lang-"
-                                (org2nikola-fix-unsupported-language lang)
-                                "\">"
-                                code
-                                "</pre>\n"))
-                )
-               (t
-                ;; default is highlight.js, it's the best!
-                (insert (concat "\n<pre><code class=\"lang-"
-                                (org2nikola-fix-unsupported-language lang)
-                                "\">"
-                                code
-                                "</code></pre>\n")))))))
+              ;; default is highlight.js, it's the best!
+              (insert (concat "\n<pre><code class=\"lang-"
+                              (org2nikola-fix-unsupported-language lang)
+                              "\">"
+                              code
+                              "</code></pre>\n")))))
         ;; Get the new html!
         (setq html (buffer-substring-no-properties (point-min) (point-max))))))
   html)
@@ -677,7 +720,10 @@ Shamelessly copied from org2blog/wp-replace-pre()."
         post-slug)))
 
 (defun org2nikola--render-subtree (&optional donot-publish)
-  "Render current subtree."
+  "Render current subtree and publish post if DONOT-PUBLISH is nil."
+  ;; htmlize requires to to access hl-line's font faces when rendering diff
+  (unless (featurep 'hl-line) (require 'hl-line))
+
   (let* ((org-directory default-directory)
          html-file
          ;; set title and tags
@@ -719,17 +765,19 @@ Shamelessly copied from org2blog/wp-replace-pre()."
     ;; html file
     (setq html-text (org2nikola-export-into-html-text))
 
-    (when org2nikola-code-prettify-type
-      (save-excursion
-        (setq html-text (org2nikola-replace-pre html-text))))
-
+    (save-excursion
+      (setq html-text (org2nikola-replace-pre html-text)))
     ;; post content should NOT contain title
-    (setq html-text (replace-regexp-in-string "<h2  *id=\"sec-1\">.*<\/h2>" "" html-text))
-    (setq html-text (replace-regexp-in-string "<h3  *id=\"sec-1\">.*<\/h3>" "" html-text))
-    (setq html-text (org2nikola-replace-urls html-text org-directory))
+    ;; both org 8 and org 9
+    (setq html-text (replace-regexp-in-string (format "<h[23] .*%s.*" title) "" html-text))
+    ;; org 8
+    (setq html-text (replace-regexp-in-string "<h[23]  *id=\"sec-1\">.*" "" html-text))
+    ;; org 9
+    (setq html-text (replace-regexp-in-string "<h[23] .*class=\"section-number-2\".*" "" html-text))
+    (setq html-text (org2nikola-replace-url html-text org-directory))
 
     (with-temp-file html-file
-      (insert html-text))
+      (insert (funcall org2nikola-process-output-html-function html-text title post-slug)))
 
     (unless donot-publish
       (run-hook-with-args 'org2nikola-after-hook title post-slug))))

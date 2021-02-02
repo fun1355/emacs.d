@@ -1,14 +1,16 @@
+;; -*- coding: utf-8; lexical-binding: t; -*-
+
 (local-require 'keyfreq)
 
 (defun turnon-keyfreq-mode ()
+  "Turn on keyfreq."
   (interactive)
-  (keyfreq-mode 1)
-  (keyfreq-autosave-mode 1))
+  ;; Fire up keyfreq a few seconds later to start up emacs faster
+  (my-run-with-idle-timer 4 (lambda ()
+                               (keyfreq-mode 1)
+                               (keyfreq-autosave-mode 1))))
 
-(defun turnoff-keyfreq-mode ()
-  (interactive)
-  (keyfreq-mode -1)
-  (keyfreq-autosave-mode -1))
+(with-eval-after-load 'keyfreq
 
 (setq keyfreq-excluded-commands
       '(self-insert-command
@@ -20,9 +22,6 @@
         backward-char
         backward-kill-word
         backward-word
-        browse-kill-ring-forward
-        browse-kill-ring-insert-and-quit
-        browse-kill-ring-quit
         clipboard-kill-ring-save
         comint-previous-input
         comint-send-input
@@ -37,7 +36,8 @@
         dired-find-file
         diredp-next-line
         diredp-previous-line
-        erase-message-buffer
+        electric-pair-delete-pair
+        shellcop-erase-buffer
         eval-buffer
         evil-a-WORD
         evil-append
@@ -140,11 +140,15 @@
         isearch-ring-retreat
         ispell-minor-check
         ivy-backward-delete-char
+        ivy-backward-kill-word
         ivy-done
         ivy-next-line
+        ivy-occur
         ivy-occur-next-line
+        ivy-occur-press-and-switch
         ivy-occur-previous-line
         ivy-previous-line
+        ivy-wgrep-change-to-wgrep-mode
         js-mode
         js2-line-break
         keyboard-escape-quit
@@ -155,6 +159,7 @@
         kill-sentence
         left-char
         markdown-exdent-or-delete
+        markdown-outdent-or-delete
         minibuffer-complete
         minibuffer-complete-and-exit
         minibuffer-keyboard-quit
@@ -190,6 +195,8 @@
         pwd
         quit-window
         right-char
+        rjsx-electric-gt
+        rjsx-electric-lt
         save-buffer
         save-buffers-kill-terminal
         scroll-down-command
@@ -225,18 +232,20 @@
         web-mode-surround
         web-mode-tag-beginning
         web-mode-test
+        wgrep-finish-edit
+        xterm-paste
         yank
         yas-compile-directory
         yas-expand
         yas-next-field-or-maybe-expand
         ))
 
-(unless (file-exists-p (file-truename keyfreq-file))
-  (with-temp-buffer
-    (insert "()")
-    (write-file (file-truename keyfreq-file))))
+  (my-write-to-missing-file "()" keyfreq-file))
 
 ;; And use keyfreq-show to see how many times you used a command.
-;; comment out below line if there is performance impact
-(turnon-keyfreq-mode)
+;; It's recommended to use `keyfreq-mode' (could be in "~/.custom.el").
+;; It's reported keyfreq is not compatible with `latex-mode'
+;; @see https://github.com/redguardtoo/emacs.d/issues/767
+;; (turnon-keyfreq-mode)
+
 (provide 'init-keyfreq)
