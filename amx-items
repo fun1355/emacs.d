@@ -1,0 +1,45 @@
+
+;; ----- amx-history -----
+(
+ text-mode
+ my-random-color-theme
+ undo-fu-only-redo
+ sort-lines
+ slime
+ inferior-lisp
+ run-lisp
+)
+
+;; ----- amx-data -----
+(
+ (my-random-color-theme . 39)
+ (package-refresh-contents . 1)
+ (package-list-packages . 2)
+ (highlight-phrase . 1)
+ (encode-hz-buffer . 3)
+ (recentf-mode . 1)
+ (recentf-load-list . 1)
+ (encode-coding-region . 1)
+ (text-mode . 17)
+ (markdown-follow-link-at-point . 2)
+ (package-install . 2)
+ (move-to-window-line-top-bottom . 3)
+ (replace-regexp . 2)
+ (replace-string . 3)
+ (undo . 1)
+ (undo-fu-only-redo . 5)
+ (undo-fu-only-redo-all . 1)
+ (maximize-window . 2)
+ (maximize-frame . 4)
+ (counsel-google . 1)
+ (counsel-etags-scan-code . 1)
+ (counsel-etags-list-tag . 1)
+ (slime . 4)
+ (comment-box . 1)
+ (sort-lines . 15)
+ (uniq-lines . 2)
+ (evil-mode . 6)
+ (ielm . 2)
+ (run-lisp . 1)
+ (inferior-lisp . 1)
+)

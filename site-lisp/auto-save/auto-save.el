@@ -3,10 +3,12 @@
 ;; Filename: auto-save.el
 ;; Description: Auto save files when idle
 ;; Author: Andy Stewart lazycat.manatee@gmail.com
-;;; Maintainer: Chen Bin (redguardtoo) <chenbin.sh AT gmail DOT com>
+;; Maintainer: Andy Stewart lazycat.manatee@gmail.com
 ;; Copyright (C) 2013 ~ 2014, Andy Stewart, all rights reserved.
 ;; Created: 2013-12-31 00:32:00
-;; Version: 1.0
+;; Version: 0.1
+;; Last-Updated: 2014-01-04 14:23:05
+;;           By: Andy Stewart
 ;; URL:
 ;; Keywords: autosave
 ;; Compatibility: GNU Emacs 23.0.60.1
@@ -86,7 +88,7 @@
   "Auto save file when emacs idle."
   :group 'auto-save)
 
-(defcustom auto-save-idle 2
+(defcustom auto-save-idle 1
   "The idle seconds to auto save file."
   :type 'integer
   :group 'auto-save)
@@ -96,25 +98,23 @@
   :type 'boolean
   :group 'auto-save)
 
-(defcustom auto-save-exclude
-  '("\\.avi"
-    "\\.mpeg"
-    "\\.3gp"
-    "\\.mp4"
-    "\\.mp3"
-    "\\.mkv"
-    "\\.rm"
-    "\\.rmvb"
-    "\\.pdf"
-    "\\.jpg"
-    "\\.jpeg"
-    "\\.png"
-    "\\.gif"
-    "\\.gz"
-    "\\.svg"
-    "\\.ico"
-    "\\.gpg"
-    "archive-contents")
+(defcustom auto-save-exclude '("\\.avi"
+                               "\\.mpeg"
+                               "\\.3gp"
+                               "\\.mp4"
+                               "\\.mp3"
+                               "\\.mkv"
+                               "\\.rm"
+                               "\\.rmvb"
+                               "\\.pdf"
+                               "\\.jpg"
+                               "\\.jpeg"
+                               "\\.png"
+                               "\\.gif"
+                               "\\.svg"
+                               "\\.ico"
+                               "\\.gpg"
+                               "archive-contents")
   "List of regexps and predicates for filenames excluded from the auto save list.
 When a filename matches any of the regexps or satisfies any of the
 predicates it is excluded from the auto save list.
@@ -129,43 +129,37 @@ must return non-nil to exclude it."
   "Return non-nil if FILENAME should be included.
 That is, if it doesn't match any of the `auto-save-exclude' checks."
   (let* ((case-fold-search nil)
-         (include-p t)
-         (i 0)
-         check)
-    (while (and (< i (length auto-save-exclude)) include-p)
+         (checks auto-save-exclude)
+         (keepit t))
+    (while (and checks keepit)
       ;; If there was an error in a predicate, err on the side of
       ;; keeping the file.
-      (setq check (nth i auto-save-exclude))
-      (condition-case nil
-          (progn
-            (cond
-             ((stringp check)
-              ;; A regexp
-              (setq include-p (not (string-match-p check filename))))
-             ((functionp check)
-              ;; A predicate
-              (setq include-p (not (funcall check filename))))))
-        (error nil))
-      (setq i (1+ i)))
-
-    include-p))
+      (setq keepit (not (ignore-errors
+                          (if (stringp (car checks))
+                              ;; A regexp
+                              (string-match-p (car checks) filename)
+                            ;; A predicate
+                            (funcall (car checks) filename))))
+            checks (cdr checks)))
+    keepit))
 
 (defun auto-save-buffers ()
-  "Auto save all buffer."
   (interactive)
   (let* (autosave-buffer-list)
     (save-excursion
       (dolist (buf (buffer-list))
         (set-buffer buf)
-        (when (and (buffer-file-name)
-                   (buffer-modified-p)
-                   (file-writable-p (buffer-file-name))
-                   (auto-save-include-p (buffer-file-name)))
-          (push (buffer-name) autosave-buffer-list)
-          (if auto-save-slient
-              (with-temp-message ""
+        (if (and (buffer-file-name)
+                 (buffer-modified-p)
+                 (file-writable-p (buffer-file-name))
+                 (auto-save-include-p (buffer-file-name)))
+            (progn
+              (push (buffer-name) autosave-buffer-list)
+              (if auto-save-slient
+                  (with-temp-message ""
+                    (basic-save-buffer))
                 (basic-save-buffer))
-            (basic-save-buffer))))
+              )))
       ;; Tell user when auto save files.
       (unless auto-save-slient
         (cond
@@ -179,7 +173,6 @@ That is, if it doesn't match any of the `auto-save-exclude' checks."
       )))
 
 (defun auto-save-enable ()
-  "Enable auto save."
   (interactive)
   (run-with-idle-timer auto-save-idle t #'auto-save-buffers))
 

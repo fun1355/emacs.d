@@ -9,6 +9,10 @@
 ;; Keywords: menu convenience dropdown
 ;; Compatibility: GNU Emacs 21.x, GNU Emacs 22.x, GNU Emacs 23.x
 ;;
+;; Features that might be required by this library:
+;;
+;;   `cl'.
+;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 ;;; Commentary:
@@ -53,7 +57,7 @@
 ;;
 ;;; Code:
 
-(require 'cl-lib)
+(eval-when-compile (require 'cl)) ;; decf, fourth, incf, loop, mapcar*
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -120,7 +124,7 @@
           (t nil))))
 
 (defun dropdown-list-move-to-start-line (candidate-count)
-  (cl-decf candidate-count)
+  (decf candidate-count)
   (let ((above-line-count (save-excursion (- (vertical-motion (- candidate-count)))))
         (below-line-count (save-excursion (vertical-motion candidate-count))))
     (cond ((= below-line-count candidate-count)
@@ -139,14 +143,14 @@
          (max-length (apply #'max lengths))
          (start (dropdown-list-start-column (+ max-length 3)))
          (i -1)
-         (candidates (cl-mapcar (lambda (candidate length)
+         (candidates (mapcar* (lambda (candidate length)
                                 (let ((diff (- max-length length)))
                                   (propertize
                                    (concat (if (> diff 0)
                                                (concat candidate (make-string diff ? ))
                                              (substring candidate 0 max-length))
                                            (format "%3d" (+ 2 i)))
-                                   'face (if (eql (cl-incf i) selidx)
+                                   'face (if (eql (incf i) selidx)
                                              'dropdown-list-selection-face
                                            'dropdown-list-face))))
                               candidates
@@ -154,7 +158,7 @@
     (save-excursion
       (and start
            (dropdown-list-move-to-start-line (length candidates))
-           (cl-loop initially (vertical-motion 0)
+           (loop initially (vertical-motion 0)
               for candidate in candidates
               do (dropdown-list-line (+ (current-column) start) candidate)
               while (/= (vertical-motion 1) 0)
@@ -213,10 +217,10 @@ Use multiple times to bind different COMMANDs to the same KEY."
         ((and (listp defs)
               (eq 'lambda (car defs))
               (= (length defs) 4)
-              (listp (cl-fourth defs))
-              (eq 'command-selector (car (cl-fourth defs))))
-         (unless (member `',command (cdr (cl-fourth defs)))
-           (setcdr (cl-fourth defs) (nconc (cdr (cl-fourth defs)) `(',command))))
+              (listp (fourth defs))
+              (eq 'command-selector (car (fourth defs))))
+         (unless (member `',command (cdr (fourth defs)))
+           (setcdr (fourth defs) (nconc (cdr (fourth defs)) `(',command))))
          defs)
         (t
          `(lambda () (interactive) (command-selector ',defs ',command)))))
