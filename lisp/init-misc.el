@@ -901,27 +901,8 @@ If the shell is already opened in some buffer, switch to that buffer."
   (beginning-of-buffer))
 
 ;; {{ unique lines
-;; ;; https://gist.github.com/ramn/796527
-;; ;; uniq-lines
-;; ;; ----------
-;; ;; This is something of a companion to the built-in sort-lines function.
-;; ;; Like the uniq utility, this removes duplicate lines from the region.  It
-;; ;; is best used after sorting a region.
-;; ;;
-;; (defun uniq-lines (start end)
-;;   "Removes duplicate lines from the selected region."
-;;   (interactive "*r")
-;;   (goto-char start)
-;;   (beginning-of-line)
-;;   (let ((last ""))
-;;     (while (< (point) end)
-;;       (let* ((bol (point))
-;;              (eol (progn (end-of-line) (point)))
-;;              (text (buffer-substring bol eol)))
-;;         (forward-char)
-;;         (if (string= last text)
-;;             (delete-region bol (point))
-;;           (setq last text))))))
+;; https://gist.github.com/ramn/796527
+;; uniq-lines
 (defun uniq-lines (start end)
   (interactive "*r")
   (delete-duplicate-lines start end))
