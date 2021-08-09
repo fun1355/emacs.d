@@ -1,4 +1,12 @@
-;; -*- coding: utf-8; lexical-binding: t; -*-
+;; {{ shell and conf
+(add-to-list 'auto-mode-alist '("\\.[^b][^a][a-zA-Z]*rc$" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.aspell\\.en\\.pws\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\mimeapps\\.list$" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.editorconfig$" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.meta\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.?muttrc\\'" . conf-mode))
+(add-to-list 'auto-mode-alist '("\\.mailcap\\'" . conf-mode))
+;; }}
 
 ;; Avoid potential lag:
 ;; https://emacs.stackexchange.com/questions/28736/emacs-pointcursor-movement-lag/28746
@@ -6,6 +14,9 @@
 ;; I use find-file-in-project instead of projectile. So I don't have this issue at all.
 ;; Set `auto-window-vscroll' to nil to avoid triggering `format-mode-line'.
 (setq auto-window-vscroll nil)
+
+(add-to-list 'auto-mode-alist '("TAGS\\'" . text-mode))
+(add-to-list 'auto-mode-alist '("\\.ctags\\'" . text-mode))
 
 ;; {{ auto-yasnippet
 ;; Use C-q instead tab to complete snippet
@@ -15,8 +26,18 @@
 (global-set-key (kbd "C-q") #'aya-open-line)
 ;; }}
 
+;; {{ ace-link
+(ace-link-setup-default)
+(global-set-key (kbd "M-o") 'ace-link)
+;; }}
+
 ;; open header file under cursor
 (global-set-key (kbd "C-x C-o") 'ffap)
+
+;; java
+(add-to-list 'auto-mode-alist '("\\.aj\\'" . java-mode))
+;; makefile
+(add-to-list 'auto-mode-alist '("\\.ninja$" . makefile-gmake-mode))
 
 ;; {{ support MY packages which are not included in melpa
 (setq org2nikola-use-verbose-metadata t) ; for nikola 7.7+
@@ -52,27 +73,25 @@
               visible-bell nil)
 
 ;; @see http://www.emacswiki.org/emacs/SavePlace
-(cond
- ((fboundp 'save-place-mode)
-  (save-place-mode 1))
- (t
-  (require 'saveplace)
-  (setq-default save-place t)))
+(require 'saveplace)
+(setq-default save-place t)
+
 
 ;; {{ find-file-in-project (ffip)
-(with-eval-after-load 'find-file-in-project
-  (defun my-search-git-reflog-code ()
-    (let* ((default-directory (my-git-root-dir)))
-      (ffip-shell-command-to-string (format "git --no-pager reflog --date=short -S\"%s\" -p"
-                                            (read-string "Regex: ")))))
-  (push 'my-search-git-reflog-code ffip-diff-backends)
-  (setq ffip-match-path-instead-of-filename t))
+(defun my-git-versions ()
+  (let* ((git-cmd (concat "git --no-pager log --date=short --pretty=format:'%h|%ad|%s|%an' "
+                          buffer-file-name)))
+    (nconc (split-string (shell-command-to-string "git branch --no-color --all") "\n" t)
+           (split-string (shell-command-to-string git-cmd) "\n" t))))
+
+
+(setq ffip-match-path-instead-of-filename t)
 
 (defun neotree-project-dir ()
   "Open NeoTree using the git root."
   (interactive)
-  (let* ((project-dir (ffip-get-project-root-directory))
-         (file-name (buffer-file-name)))
+  (let ((project-dir (ffip-get-project-root-directory))
+        (file-name (buffer-file-name)))
     (if project-dir
         (progn
           (neotree-dir project-dir)
@@ -80,16 +99,45 @@
       (message "Could not find git project root."))))
 ;; }}
 
+;; {{ groovy-mode
+ (add-to-list 'auto-mode-alist '("\\.groovy\\'" . groovy-mode))
+ (add-to-list 'auto-mode-alist '("\\.gradle\\'" . groovy-mode))
+;; }}
+
+;; {{ https://github.com/browse-kill-ring/browse-kill-ring
+(local-require 'browse-kill-ring)
+;; no duplicates
+(setq browse-kill-ring-display-style 'one-line
+      browse-kill-ring-display-duplicates nil
+      ;; preview is annoying
+      browse-kill-ring-show-preview nil)
+(browse-kill-ring-default-keybindings)
+;; hotkeys:
+;; n/p => next/previous
+;; s/r => search
+;; l => filter with regex
+;; g => update/refresh
+;; }}
 
 ;; {{ gradle
 (defun my-run-gradle-in-shell (cmd)
   (interactive "sEnter a string:")
-  (let* ((root-dir (locate-dominating-file default-directory
-                                           "build.gradle")))
+  (let ((root-dir (locate-dominating-file default-directory
+                                          "build.gradle")))
     (if root-dir
-        (let* ((default-directory root-dir))
-          (shell-command (concat "gradle " cmd "&"))))))
+      (let ((default-directory root-dir))
+        (shell-command (concat "gradle " cmd "&"))))
+    ))
 ;; }}
+
+;; cmake
+(setq auto-mode-alist (append '(("CMakeLists\\.txt\\'" . cmake-mode))
+                              '(("\\.cmake\\'" . cmake-mode))
+                              auto-mode-alist))
+
+(defun back-to-previous-buffer ()
+  (interactive)
+  (switch-to-buffer nil))
 
 ;; {{ dictionary setup
 (defun my-lookup-dict-org ()
@@ -99,105 +147,80 @@
 ;; }}
 
 ;; {{ bookmark
-;; use my own bookmark if it exists
-(with-eval-after-load 'bookmark
-  (if (file-exists-p (file-truename "~/.emacs.bmk"))
-      (setq bookmark-file (file-truename "~/.emacs.bmk"))))
+;; use my own bmk if it exists
+(if (file-exists-p (file-truename "~/.emacs.bmk"))
+    (setq bookmark-file (file-truename "~/.emacs.bmk")))
 ;; }}
 
-(defun lookup-doc-in-man ()
-  "Read man by querying keyword at point."
+(defun insert-lorem ()
   (interactive)
-  (man (concat "-k " (my-use-selected-string-or-ask))))
+  (insert "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque sem mauris, aliquam vel interdum in, faucibus non libero. Asunt in anim uis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in anim id est laborum. Allamco laboris nisi ut aliquip ex ea commodo consequat."))
+
+(defun my-gud-gdb ()
+  (interactive)
+  (gud-gdb (concat "gdb --fullname \"" (cppcm-get-exe-path-current-buffer) "\"")))
+
+(defun my-overview-of-current-buffer ()
+  (interactive)
+  (set-selective-display (if selective-display nil 1)))
+
+(defun lookup-doc-in-man ()
+  (interactive)
+  (man (concat "-k " (my-use-selected-string-or-ask ""))))
 
 ;; @see http://blog.binchen.org/posts/effective-code-navigation-for-web-development.html
 ;; don't let the cursor go into minibuffer prompt
 (setq minibuffer-prompt-properties (quote (read-only t point-entered minibuffer-avoid-prompt face minibuffer-prompt)))
 
-(global-set-key (kbd "M-x") 'counsel-M-x)
-(global-set-key (kbd "C-x C-m") 'counsel-M-x)
+;; Don't echo passwords when communicating with interactive programs:
+;; Github prompt is like "Password for 'https://user@github.com/':"
+(setq comint-password-prompt-regexp (format "%s\\|^ *Password for .*: *$" comint-password-prompt-regexp))
+(add-hook 'comint-output-filter-functions 'comint-watch-for-password-prompt)
 
-;; hide the compilation buffer automatically is not a good idea.
-;; if compiling command is a unit test command
-;; It's better let user decide when to hide something
-(defvar my-do-bury-compilation-buffer nil
-  "Hide compilation buffer if compile successfully.")
+;; {{ which-key-mode
+(local-require 'which-key)
+(setq which-key-allow-imprecise-window-fit t) ; performance
+(setq which-key-separator ":")
+(which-key-mode 1)
+;; }}
 
-(defun compilation-finish-hide-buffer-on-success (buffer str)
-  "Bury BUFFER whose name marches STR.
-This function can be re-used by other major modes after compilation."
+
+;; smex or counsel-M-x?
+(defvar my-use-smex nil
+  "Use `smex' instead of `counsel-M-x' when press M-x.")
+(defun my-M-x ()
+  (interactive)
+  (cond
+    (my-use-smex
+      (smex))
+    ((fboundp 'counsel-M-x)
+     ;; `counsel-M-x' will use `smex' to remember history
+     (counsel-M-x))
+    ((fboundp 'smex)
+     (smex))
+    (t
+      (execute-extended-command))))
+(global-set-key (kbd "M-x") 'my-M-x)
+(global-set-key (kbd "C-x C-m") 'my-M-x)
+
+(defun compilation-finish-hide-buffer-on-success (buf str)
+  "Could be reused by other major-mode after compilation."
   (if (string-match "exited abnormally" str)
       ;;there were errors
       (message "compilation errors, press C-x ` to visit")
     ;;no errors, make the compilation window go away in 0.5 seconds
-    (when (and my-do-bury-compilation-buffer
-               (buffer-name buffer)
-               (string-match "*compilation*" (buffer-name buffer)))
+    (when (and (buffer-name buf)
+               (string-match "*compilation*" (buffer-name buf)))
       ;; @see http://emacswiki.org/emacs/ModeCompile#toc2
       (bury-buffer "*compilation*")
       (winner-undo)
       (message "NO COMPILATION ERRORS!"))))
 
-(defun my-normal-word-before-point-p (position n fn)
-  "A normal word exists before POSITION.  N characters before current point is checked.
-FN checks these characters belong to normal word characters."
-  (save-excursion
-    (goto-char position)
-    ;; sample N characters before POSITION
-    (let* ((rlt t)
-           (i 0))
-      (while (and (< i n) rlt)
-        (let* ((c (char-before (- (point) i))))
-          (when (not (and c (funcall fn c)))
-            (setq rlt nil)))
-        (setq i (1+ i)))
-      rlt)))
-
-(defun my-electric-pair-inhibit (char)
-  "Customize electric pair when input CHAR."
-  (let* (rlt
-         (quote-chars '(34 39))
-         (word-fn (lambda (c)
-                    (or (and (<= ?a c) (<= c ?z))
-                        (and (<= ?A c) (<= c ?Z))
-                        (and (<= ?0 c) (<= c ?9))))))
-    (cond
-     ((and (memq major-mode '(minibuffer-inactive-mode))
-           (not (string-match "^Eval:" (buffer-string))))
-      (setq rlt t))
-
-     ;; Don't insert extra single/double quotes at the end of word
-     ;; Also @see https://github.com/redguardtoo/emacs.d/issues/892#issuecomment-740259242
-     ((and (memq (char-before (point)) quote-chars)
-           (my-normal-word-before-point-p (1- (point)) 4 word-fn))
-      (setq rlt t))
-
-     (t
-      (setq rlt (electric-pair-default-inhibit char))))
-
-    rlt))
-
-(with-eval-after-load 'flymake
-  (setq flymake-gui-warnings-enabled nil))
-
 (defun generic-prog-mode-hook-setup ()
-  (when (buffer-too-big-p)
-    ;; Turn off `linum-mode' when there are more than 5000 lines
-    (linum-mode -1)
-    (when (my-should-use-minimum-resource)
-      (font-lock-mode -1)))
-
-  (company-ispell-setup)
+  ;; turn off `linum-mode' when there are more than 5000 lines
+  (if (buffer-too-big-p) (linum-mode -1))
 
   (unless (is-buffer-file-temp)
-
-    (unless (featurep 'esup-child)
-      (my-ensure 'lazyflymake)
-      (lazyflymake-start)
-
-      (my-ensure 'wucuo)
-      (setq-local ispell-extra-args (my-detect-ispell-args t))
-      (wucuo-start))
 
     ;; @see http://xugx2007.blogspot.com.au/2007/06/benjamin-rutts-emacs-c-development-tips.html
     (setq compilation-finish-functions
@@ -205,12 +228,13 @@ FN checks these characters belong to normal word characters."
 
     ;; fic-mode has performance issue on 5000 line C++, we can always use swiper instead
     ;; don't spell check double words
-    (setq-local wucuo-flyspell-check-doublon nil)
+    (setq flyspell-check-doublon nil)
     ;; enable for all programming modes
     ;; http://emacsredux.com/blog/2013/04/21/camelcase-aware-editing/
     (unless (derived-mode-p 'js2-mode)
       (subword-mode 1))
 
+    (setq-default electric-pair-inhibit-predicate 'electric-pair-conservative-inhibit)
     (electric-pair-mode 1)
 
     ;; eldoc, show API doc in minibuffer echo area
@@ -229,12 +253,13 @@ FN checks these characters belong to normal word characters."
 ;; (add-hook 'org-mode-hook 'truncate-lines-setup)
 ;; }}
 
-;; turn on auto-fill-mode, don't use `text-mode-hook' because for some
+;; turns on auto-fill-mode, don't use text-mode-hook because for some
 ;; mode (org-mode for example), this will make the exported document
 ;; ugly!
 ;; (add-hook 'markdown-mode-hook 'turn-on-auto-fill)
 (add-hook 'change-log-mode-hook 'turn-on-auto-fill)
 (add-hook 'cc-mode-hook 'turn-on-auto-fill)
+(global-set-key (kbd "C-c q") 'auto-fill-mode)
 
 ;; some project prefer tab, so be it
 ;; @see http://stackoverflow.com/questions/69934/set-4-space-indent-in-emacs-in-text-mode
@@ -246,6 +271,9 @@ FN checks these characters belong to normal word characters."
 ;; (add-hook 'window-setup-hook 'maximize-frame t)
 (setq history-delete-duplicates t)
 
+;;----------------------------------------------------------------------------
+(fset 'yes-or-no-p 'y-or-n-p)
+
 ;; NO automatic new line when scrolling down at buffer bottom
 (setq next-line-add-newlines nil)
 
@@ -253,14 +281,14 @@ FN checks these characters belong to normal word characters."
 (global-set-key (kbd "C-h C-f") 'find-function)
 
 ;; {{ time format
-;; If you want to customize time format, read document of `format-time-string'
+;; If you want to customize time format, read documantation of `format-time-string'
 ;; and customize `display-time-format'.
 ;; (setq display-time-format "%a %b %e")
 
 ;; from RobinH, Time management
 (setq display-time-24hr-format t) ; the date in modeline is English too, magic!
 (setq display-time-day-and-date t)
-(my-run-with-idle-timer 2 #'display-time)
+(display-time) ; show date in modeline
 ;; }}
 
 ;;a no-op function to bind to if you want to set a keystroke to null
@@ -268,21 +296,112 @@ FN checks these characters belong to normal word characters."
 
 (defalias 'list-buffers 'ibuffer)
 
+;effective emacs item 7; no scrollbar, no menubar, no toolbar
+(if (fboundp 'scroll-bar-mode) (scroll-bar-mode -1))
+(if (fboundp 'tool-bar-mode) (tool-bar-mode -1))
+
 (defun my-download-subtitles ()
   (interactive)
   (shell-command "periscope.py -l en *.mkv *.mp4 *.avi &"))
 
-;; {{ show email sent by `git send-email' in gnus
-(with-eval-after-load 'gnus
-  (local-require 'gnus-article-treat-patch)
-  (setq gnus-article-patch-conditions
-        '( "^@@ -[0-9]+,[0-9]+ \\+[0-9]+,[0-9]+ @@" )))
+
+;; {{ @see http://emacsredux.com/blog/2013/04/21/edit-files-as-root/
+(defun sudo-edit (&optional arg)
+  "Edit currently visited file as root.
+With a prefix ARG prompt for a file to visit.
+Will also prompt for a file to visit if current
+buffer is not visiting a file.
+You may insert below line into ~/.authinfo.gpg to type less:
+machine 127.0.0.1 login root password ****** port sudo
+See \"Reusing passwords for several connections\" from INFO.
+"
+  (interactive "P")
+  (if (or arg (not buffer-file-name))
+      (find-file (concat "/sudo:root@127.0.0.1:"
+                         (read-file-name "Find file(as root): ")))
+    (find-alternate-file (concat "/sudo:@127.0.0.1:"
+                                 buffer-file-name))))
+
+(defadvice ido-find-file (after find-file-sudo activate)
+  "Find file as root if necessary."
+  (if (and (not (and buffer-file-name
+                     (file-writable-p buffer-file-name)))
+           ;; sudo edit only physical file
+           buffer-file-name
+           ;; sudo edit only /etc/**/*
+           (string-match-p "^/etc/" buffer-file-name))
+      (find-alternate-file (concat "/sudo:root@127.0.0.1:"
+                                   buffer-file-name))))
 ;; }}
+
+;; edit confluence wiki
+(add-to-list 'auto-mode-alist '("\\.wiki\\'" . confluence-edit-mode))
+
+(defun erase-specific-buffer (num buf-name)
+  (let ((message-buffer (get-buffer buf-name))
+        (old-buffer (current-buffer)))
+    (save-excursion
+      (if (buffer-live-p message-buffer)
+          (progn
+            (switch-to-buffer message-buffer)
+            (if (not (null num))
+                (progn
+                  (end-of-buffer)
+                  (dotimes (i num)
+                    (previous-line))
+                  (set-register t (buffer-substring (point) (point-max)))
+                  (erase-buffer)
+                  (insert (get-register t))
+                  (switch-to-buffer old-buffer))
+              (progn
+                (erase-buffer)
+                (switch-to-buffer old-buffer))))
+        (error "Message buffer doesn't exists!")
+        ))))
+
+;; {{ message buffer things
+(defun erase-message-buffer (&optional num)
+  "Erase the content of the *Messages* buffer in emacs.
+    Keep the last num lines if argument num if given."
+  (interactive "p")
+  (let ((buf (cond
+              ((eq 'ruby-mode major-mode) "*server*")
+              (t "*Messages*"))))
+    (erase-specific-buffer num buf)))
+
+;; turn off read-only-mode in *Message* buffer, a "feature" in v24.4
+(when (fboundp 'messages-buffer-mode)
+  (defun messages-buffer-mode-hook-setup ()
+    (message "messages-buffer-mode-hook-setup called")
+    (read-only-mode -1))
+  (add-hook 'messages-buffer-mode-hook 'messages-buffer-mode-hook-setup))
+;; }}
+
+;; vimrc
+(add-to-list 'auto-mode-alist '("\\.?vim\\(rc\\)?$" . vimrc-mode))
+
+;; {{ show email sent by `git send-email' in gnus
+(eval-after-load 'gnus
+  '(progn
+     (require 'gnus-article-treat-patch)
+     (setq gnus-article-patch-conditions
+           '( "^@@ -[0-9]+,[0-9]+ \\+[0-9]+,[0-9]+ @@" ))
+     ))
+;; }}
+
+(defun toggle-full-window()
+  "Toggle the full view of selected window"
+  (interactive)
+  ;; @see http://www.gnu.org/software/emacs/manual/html_node/elisp/Splitting-Windows.html
+  (if (window-parent)
+      (delete-other-windows)
+    (winner-undo)
+    ))
 
 (defun add-pwd-into-load-path ()
   "add current directory into load-path, useful for elisp developers"
   (interactive)
-  (let* ((dir (expand-file-name default-directory)))
+  (let ((dir (expand-file-name default-directory)))
     (if (not (memq dir load-path))
         (add-to-list 'load-path dir))
     (message "Directory added into load-path:%s" dir)))
@@ -309,13 +428,14 @@ FN checks these characters belong to normal word characters."
                         "\\.mkv$"
                         "\\.mp[34]$"
                         "\\.avi$"
-                        "\\.wav$"
+                        "\\.pdf$"
                         "\\.docx?$"
                         "\\.xlsx?$"
                         ;; sub-titles
                         "\\.sub$"
                         "\\.srt$"
                         "\\.ass$"
+                        ;; ~/.emacs.d/**/*.el included
                         ;; "/home/[a-z]\+/\\.[a-df-z]" ; configuration file should not be excluded
                         ))
 ;; }}
@@ -328,39 +448,33 @@ FN checks these characters belong to normal word characters."
 
 (defun my-which-function ()
   "Return current function name."
-  ;; @see http://stackoverflow.com/questions/13426564/how-to-force-a-rescan-in-imenu-by-a-function
   ;; clean the imenu cache
-  (my-rescan-imenu-items (if (my-use-tags-as-imenu-function-p)
-                      'counsel-etags-imenu-default-create-index-function
-                    imenu-create-index-function))
+  ;; @see http://stackoverflow.com/questions/13426564/how-to-force-a-rescan-in-imenu-by-a-function
+  (setq imenu--index-alist nil)
   (which-function))
 
 (defun popup-which-function ()
-  "Popup which function message."
   (interactive)
-  (let* ((msg (my-which-function)))
-    (when msg
-      (popup-tip msg)
-      (copy-yank-str msg))))
+  (let ((msg (my-which-function)))
+    (popup-tip msg)
+    (copy-yank-str msg)))
 ;; }}
 
 ;; {{ music
 (defun mpc-which-song ()
   (interactive)
-  (let* ((msg (car (nonempty-lines (shell-command-to-string "mpc")))))
+  (let ((msg (car (split-string (shell-command-to-string "mpc") "\n+"))))
     (message msg)
     (copy-yank-str msg)))
 
 (defun mpc-next-prev-song (&optional prev)
   (interactive)
-  (message (car (nonempty-lines (shell-command-to-string
-                                 (concat "mpc "
-                                         (if prev "prev" "next")))))))
-
+  (message (car (split-string (shell-command-to-string
+                               (concat "mpc " (if prev "prev" "next"))) "\n+"))))
 (defun lyrics()
   "Prints the lyrics for the current song"
   (interactive)
-  (let* ((song (shell-command-to-string "lyrics")))
+  (let ((song (shell-command-to-string "lyrics")))
     (if (equal song "")
         (message "No lyrics - Opening browser.")
       (switch-to-buffer (create-file-buffer "Lyrics"))
@@ -368,16 +482,38 @@ FN checks these characters belong to normal word characters."
       (goto-line 0))))
 ;; }}
 
+;; @see http://www.emacswiki.org/emacs/EasyPG#toc4
+(defadvice epg--start (around advice-epg-disable-agent disable)
+  "Make epg--start not able to find a gpg-agent"
+  (let ((agent (getenv "GPG_AGENT_INFO")))
+    (setenv "GPG_AGENT_INFO" nil)
+    ad-do-it
+    (setenv "GPG_AGENT_INFO" agent)))
+
+(setq epa-pinentry-mode 'loopback)
+
+;; https://github.com/abo-abo/ace-window
+;; `M-x ace-window ENTER m` to swap window
+(global-set-key (kbd "C-x o") 'ace-window)
+
+;; {{ move focus between sub-windows
+(local-require 'window-numbering)
+(custom-set-faces '(window-numbering-face ((t (:foreground "DeepPink" :underline "DeepPink" :weight bold)))))
+(window-numbering-mode 1)
+;; }}
+
+(ace-pinyin-global-mode +1)
+
 ;; {{ avy, jump between texts, like easymotion in vim
 ;; @see http://emacsredux.com/blog/2015/07/19/ace-jump-mode-is-dead-long-live-avy/ for more tips
 ;; dired
-(with-eval-after-load 'dired
-  (diredfl-global-mode 1)
-  (define-key dired-mode-map (kbd ";") 'avy-goto-subword-1))
+(eval-after-load "dired"
+  '(progn
+     (define-key dired-mode-map (kbd ";") 'avy-goto-subword-1)))
 ;; }}
 
 ;; {{start dictionary lookup
-;; use below commands to create dictionary
+;; use below commands to create dicitonary
 ;; mkdir -p ~/.stardict/dic
 ;; # wordnet English => English
 ;; curl http://abloz.com/huzheng/stardict-dic/dict.org/stardict-dictd_www.dict.org_wn-2.4.2.tar.bz2 | tar jx -C ~/.stardict/dic
@@ -391,26 +527,80 @@ FN checks these characters belong to normal word characters."
 ;; ANSI-escape coloring in compilation-mode
 ;; {{ http://stackoverflow.com/questions/13397737/ansi-coloring-in-compilation-mode
 (ignore-errors
+  (require 'ansi-color)
   (defun my-colorize-compilation-buffer ()
     (when (eq major-mode 'compilation-mode)
-      (my-ensure 'ansi-color)
       (ansi-color-apply-on-region compilation-filter-start (point-max))))
   (add-hook 'compilation-filter-hook 'my-colorize-compilation-buffer))
+;; }}
+
+;; @see http://emacs.stackexchange.com/questions/14129/which-keyboard-shortcut-to-use-for-navigating-out-of-a-string
+(defun font-face-is-similar (f1 f2)
+  (let (rlt)
+    ;; (message "f1=%s f2=%s" f1 f2)
+    ;; in emacs-lisp-mode, the '^' from "^abde" has list of faces:
+    ;;   (font-lock-negation-char-face font-lock-string-face)
+    (if (listp f1) (setq f1 (nth 1 f1)))
+    (if (listp f2) (setq f2 (nth 1 f2)))
+
+    (if (eq f1 f2) (setq rlt t)
+      ;; C++ comment has different font face for limit and content
+      ;; f1 or f2 could be a function object because of rainbow mode
+      (if (and (string-match "-comment-" (format "%s" f1)) (string-match "-comment-" (format "%s" f2)))
+          (setq rlt t)))
+    rlt))
+
+
+;; {{
+(defun goto-edge-by-comparing-font-face (&optional step)
+"Goto either the begin or end of string/comment/whatever.
+If step is -1, go backward."
+  (interactive "P")
+  (let ((cf (get-text-property (point) 'face))
+        (p (point))
+        rlt
+        found
+        end)
+    (unless step (setq step 1)) ;default value
+    (setq end (if (> step 0) (point-max) (point-min)))
+    (while (and (not found) (not (= end p)))
+      (if (not (font-face-is-similar (get-text-property p 'face) cf))
+          (setq found t)
+        (setq p (+ p step))))
+    (if found (setq rlt (- p step))
+      (setq rlt p))
+    ;; (message "rlt=%s found=%s" rlt found)
+    (goto-char rlt)))
 ;; }}
 
 (defun my-minibuffer-setup-hook ()
   (local-set-key (kbd "M-y") 'paste-from-x-clipboard)
   (local-set-key (kbd "C-k") 'kill-line)
-  (subword-mode 1) ; enable subword movement in minibuffer
   (setq gc-cons-threshold most-positive-fixnum))
 
 (defun my-minibuffer-exit-hook ()
   ;; evil-mode also use minibuf
-  (setq gc-cons-threshold 67108864))
+  (setq gc-cons-threshold best-gc-cons-threshold))
 
 ;; @see http://bling.github.io/blog/2016/01/18/why-are-you-changing-gc-cons-threshold/
 (add-hook 'minibuffer-setup-hook #'my-minibuffer-setup-hook)
 (add-hook 'minibuffer-exit-hook #'my-minibuffer-exit-hook)
+
+;; {{ string-edit-mode
+(defun string-edit-at-point-hook-setup ()
+  (let ((major-mode-list (remove major-mode '(web-mode js2-mode js-mode css-mode emacs-lisp-mode)))
+        (str (my-buffer-str)))
+    ;; (ivy-read "directories:" collection :action 'dired)
+    ;; (message "original=%s" (se/find-original))
+    ;; (message "major-mode-list=%s major-mode=%s" major-mode-list major-mode)
+    (save-excursion
+      (cond
+       ((string-match-p "<[a-zA-Z]" str)
+        (web-mode))
+       ((string-match-p "function(\\| var \\|" str)
+        (js-mode))))))
+(add-hook 'string-edit-at-point-hook 'string-edit-at-point-hook-setup)
+;; }}
 
 ;; {{ Diff two regions
 ;; Step 1: Select a region and `M-x diff-region-tag-selected-as-a'
@@ -418,7 +608,7 @@ FN checks these characters belong to normal word characters."
 ;; Press "q" in evil-mode or "C-c C-c" to exit the diff output buffer
 (defun diff-region-format-region-boundary (b e)
   "Make sure lines are selected and B is less than E"
-  (let* (tmp rlt)
+  (let (tmp rlt)
     ;; swap b e, make sure b < e
     (when (> b e)
       (setq tmp b)
@@ -442,22 +632,11 @@ FN checks these characters belong to normal word characters."
     (setq rlt (list b e))
     rlt))
 
-(defmacro diff-region-open-diff-output (content buffer-name)
-  `(let ((rlt-buf (get-buffer-create ,buffer-name)))
-    (save-current-buffer
-      (switch-to-buffer-other-window rlt-buf)
-      (set-buffer rlt-buf)
-      (erase-buffer)
-      (insert ,content)
-      ;; `ffip-diff-mode' is more powerful than `diff-mode'
-      (ffip-diff-mode)
-      (goto-char (point-min)))))
-
 (defun diff-region-tag-selected-as-a ()
   "Select a region to compare."
   (interactive)
   (when (region-active-p)
-    (let* (tmp buf)
+    (let (tmp buf)
       ;; select lines
       (setq tmp (diff-region-format-region-boundary (region-beginning) (region-end)))
       (setq buf (get-buffer-create "*Diff-regionA*"))
@@ -468,18 +647,18 @@ FN checks these characters belong to normal word characters."
   (message "Now select other region to compare and run `diff-region-compare-with-b'"))
 
 (defun diff-region-compare-with-b ()
-  "Compare current region with the region set by `diff-region-tag-selected-as-a'.
-If no region is selected, `kill-ring' or clipboard is used instead."
+  "Compare current region with region selected by `diff-region-tag-selected-as-a'.
+If no region is selected. You will be asked to use `kill-ring' or clipboard instead.
+`simpleclip' need be installed to read clipboard."
   (interactive)
   (let* (rlt-buf
          diff-output
-         tmp
          ;; file A
-         (fa (make-temp-file (expand-file-name "diff-region"
+         (fa (make-temp-file (expand-file-name "scor"
                                                (or small-temporary-file-directory
                                                    temporary-file-directory))))
          ;; file B
-         (fb (make-temp-file (expand-file-name "diff-region"
+         (fb (make-temp-file (expand-file-name "scor"
                                                (or small-temporary-file-directory
                                                    temporary-file-directory)))))
     (when (and fa (file-exists-p fa) fb (file-exists-p fb))
@@ -490,8 +669,9 @@ If no region is selected, `kill-ring' or clipboard is used instead."
         (write-region (car tmp) (cadr tmp) fb))
        (t
         ;; text from `kill-ring' or clipboard
-        (let* ((choice (completing-read "Since no region selected, compare text in:"
-                                        '("kill-ring" "clipboard")))
+        (unless (featurep 'ido) (require 'ido))
+        (let* ((choice (ido-completing-read "Since no region selected, compare text in:"
+                                            '("kill-ring" "clipboard")))
                (txt (cond
                      ((string= choice "kill-ring")
                       (car kill-ring))
@@ -505,20 +685,12 @@ If no region is selected, `kill-ring' or clipboard is used instead."
         (write-region (point-min) (point-max) fa))
       ;; diff NOW!
       ;; show the diff output
-      (cond
-       ((string= (setq diff-output (shell-command-to-string (format "%s -Nabur %s %s" diff-command fa fb))) "")
-        (message "Two regions are SAME!"))
-       ((executable-find "git")
-        (my-ensure 'magit)
-        (magit-diff-setup nil (list "--no-index" "--indent-heuristic" "--histogram")
-                          nil (list (magit-convert-filename-for-git
-                                     (expand-file-name fa))
-                                    (magit-convert-filename-for-git
-                                     (expand-file-name fb))))
-        (ffip-diff-mode))
-       (t
+      (if (string= (setq diff-output (shell-command-to-string (format "diff -Nabur %s %s" fa fb))) "")
+          ;; two regions are same
+          (message "Two regions are SAME!")
+        ;; show the diff
         (diff-region-open-diff-output diff-output
-                                      "*Diff-region-output*")))
+                                      "*Diff-region-output*"))
       ;; clean the temporary files
       (if (and fa (file-exists-p fa))
           (delete-file fa))
@@ -536,7 +708,8 @@ If no region is selected, `kill-ring' or clipboard is used instead."
 (defun extract-list-from-package-json ()
   "Extract package list from package.json."
   (interactive)
-  (let* ((str (my-use-selected-string-or-ask)))
+  (let* ((str (my-use-selected-string-or-ask "")))
+    (message "my-select-cliphist-item called => %s" str)
     (setq str (replace-regexp-in-string ":.*$\\|\"" "" str))
     ;; join lines
     (setq str (replace-regexp-in-string "[\r\n \t]+" " " str))
@@ -565,25 +738,15 @@ If no region is selected, `kill-ring' or clipboard is used instead."
   (setq indent-tabs-mode (not indent-tabs-mode))
   (message "indent-tabs-mode=%s" indent-tabs-mode))
 
-(defvar my-auto-save-exclude-major-mode-list
-  '(message-mode)
-  "The major modes where auto-save is disabled.")
-
 ;; {{ auto-save.el
-(defun my-check-major-mode-for-auto-save (file)
-  "Check current major mode of FILE for auto save."
-  (ignore file)
-  (memq major-mode my-auto-save-exclude-major-mode-list))
-
-(with-eval-after-load 'auto-save
-  (push 'my-file-too-big-p auto-save-exclude)
-  (push 'my-check-major-mode-for-auto-save auto-save-exclude)
-  (setq auto-save-idle 2) ; 2 seconds
-  (setq auto-save-slient t))
-(my-run-with-idle-timer 4 #'auto-save-enable)
+(local-require 'auto-save)
+(add-to-list 'auto-save-exclude 'file-too-big-p t)
+(auto-save-enable)
+(setq auto-save-slient t)
 ;; }}
 
 ;; {{ csv
+(add-auto-mode 'csv-mode "\\.[Cc][Ss][Vv]\\'")
 (setq csv-separators '("," ";" "|" " "))
 ;; }}
 
@@ -606,7 +769,7 @@ If no region is selected, `kill-ring' or clipboard is used instead."
   (let* ((str (if (region-active-p) (my-selected-str)
                 (my-buffer-str)))
          (total-hours 0)
-         (lines (nonempty-lines str)))
+         (lines (split-string str "\n")))
     (dolist (l lines)
       (if (string-match " \\([0-9][0-9.]*\\)h[ \t]*$" l)
           (setq total-hours (+ total-hours (string-to-number (match-string 1 l))))))
@@ -616,18 +779,15 @@ If no region is selected, `kill-ring' or clipboard is used instead."
 ;; @see https://github.com/rooney/zencoding for original tutorial
 ;; @see https://github.com/smihica/emmet for new tutorial
 ;; C-j or C-return to expand the line
-(add-hook 'sgml-mode-hook 'emmet-mode) ; `sgml-mode` is parent of `html-mode'
+(add-hook 'html-mode-hook 'emmet-mode)
+(add-hook 'sgml-mode-hook 'emmet-mode)
 (add-hook 'web-mode-hook 'emmet-mode)
 (add-hook 'css-mode-hook  'emmet-mode)
 (add-hook 'rjsx-mode-hook  'emmet-mode)
 ;; }}
 
-(defun sgml-mode-hook-setup ()
-  "sgml/html mode setup."
-  ;; let web-mode handle indentation by itself since it does not derive from `sgml-mode'
-  (setq-local indent-region-function 'sgml-pretty-print))
-(add-hook 'sgml-mode-hook 'sgml-mode-hook-setup)
-
+(autoload 'verilog-mode "verilog-mode" "Verilog mode" t )
+(add-to-list 'auto-mode-alist '("\\.[ds]?vh?\\'" . verilog-mode))
 
 ;; {{ xterm
 (defun run-after-make-frame-hooks (frame)
@@ -639,8 +799,7 @@ If no region is selected, `kill-ring' or clipboard is used instead."
 ;; }}
 
 ;; flymake
-(with-eval-after-load 'flymake
-  (setq flymake-gui-warnings-enabled nil))
+(setq flymake-gui-warnings-enabled nil)
 
 ;; {{ check attachments
 (defun my-message-current-line-cited-p ()
@@ -654,21 +813,20 @@ If no region is selected, `kill-ring' or clipboard is used instead."
   (save-excursion
     (goto-char (point-min))
     (save-match-data
-      (let* (search-result)
+      (let (search-result)
         (while
             (and (setq search-result (re-search-forward "\\(attach\\|pdf\\|file\\|screen ?shot\\)" nil t))
                  (my-message-current-line-cited-p)))
         search-result))))
 
 (defun my-message-has-attachment-p ()
-  "Return t if an attachment is already attached to the message."
+  "Return t if the message has an attachment."
   (save-excursion
     (goto-char (point-min))
     (save-match-data
       (re-search-forward "<#part" nil t))))
 
 (defun my-message-pre-send-check-attachment ()
-  "Check attachment before send mail."
   (when (and (my-message-says-attachment-p)
              (not (my-message-has-attachment-p)))
     (unless
@@ -681,15 +839,20 @@ If no region is selected, `kill-ring' or clipboard is used instead."
 ;; @see https://stackoverflow.com/questions/3417438/closing-all-other-buffers-in-emacs
 (defun kill-all-but-current-buffer ()
   (interactive)
-  (mapc 'kill-buffer (cdr (buffer-list (current-buffer)))))
+    (mapc 'kill-buffer (cdr (buffer-list (current-buffer)))))
 
 (defun minibuffer-inactive-mode-hook-setup ()
-  ;; Make `try-expand-dabbrev' from `hippie-expand' work in mini-buffer.
-  ;; @see `he-dabbrev-beg', so we need re-define syntax for '/'.
+  ;; make `try-expand-dabbrev' from `hippie-expand' work in mini-buffer
+  ;; @see `he-dabbrev-beg', so we need re-define syntax for '/'
   (set-syntax-table (let* ((table (make-syntax-table)))
                       (modify-syntax-entry ?/ "." table)
                       table)))
 (add-hook 'minibuffer-inactive-mode-hook 'minibuffer-inactive-mode-hook-setup)
+
+;; {{ dumb-jump
+(setq dumb-jump-selector 'ivy)
+(dumb-jump-mode)
+;; }}
 
 ;; {{ vc-msg
 (defun vc-msg-hook-setup (vcs-type commit-info)
@@ -698,23 +861,33 @@ If no region is selected, `kill-ring' or clipboard is used instead."
 (add-hook 'vc-msg-hook 'vc-msg-hook-setup)
 
 (defun vc-msg-show-code-setup ()
-  "Use `ffip-diff-mode' instead of `diff-mode'."
-  (my-ensure 'find-file-in-project)
+  ;; use `ffip-diff-mode' from package find-file-in-project instead of `diff-mode'
+  (unless (featurep 'find-file-in-project)
+    (require 'find-file-in-project))
   (ffip-diff-mode))
 
-(add-hook 'vc-msg-show-code-hook 'vc-msg-show-code-setup)
+  (add-hook 'vc-msg-show-code-hook 'vc-msg-show-code-setup)
 ;; }}
 
 ;; {{ eacl - emacs auto complete line(s)
 (global-set-key (kbd "C-x C-l") 'eacl-complete-line)
-(global-set-key (kbd "C-c ;") 'eacl-complete-multiline)
-(with-eval-after-load 'eacl
-  ;; not interested in untracked files in git repository
-  (setq eacl-git-grep-untracked nil))
+(global-set-key (kbd "C-c ;") 'eacl-complete-statement)
+(global-set-key (kbd "C-c C-]") 'eacl-complete-snippet)
+(global-set-key (kbd "C-c .") 'eacl-complete-tag)
+;; }}
+
+;; {{ wgrep and rgrep, inspired by http://oremacs.com/2015/01/27/my-refactoring-workflow/
+(eval-after-load 'grep
+  '(define-key grep-mode-map
+     (kbd "C-x C-q") 'wgrep-change-to-wgrep-mode))
+(eval-after-load 'wgrep
+  '(define-key grep-mode-map
+     (kbd "C-c C-c") 'wgrep-finish-edit))
 ;; }}
 
 ;; {{
-(defun my-toggle-typewriter ()
+(local-require 'typewriter-mode)
+(defun toggle-typewriter ()
   "Turn on/off typewriter."
   (interactive)
   (if (bound-and-true-p typewriter-mode)
@@ -722,61 +895,40 @@ If no region is selected, `kill-ring' or clipboard is used instead."
     (typewriter-mode 1)))
 ;; }}
 
-(with-eval-after-load 'grep
-  ;; eacl and other general grep (rgrep, grep ...) setup
-  (dolist (v '("auto"
-               "target"
-               "node_modules"
-               "bower_components"
-               "*dist"
-               ".sass_cache"
-               ".cache"
-               ".npm"
-               "elpa"))
-    (add-to-list 'grep-find-ignored-directories v))
-  (dolist (v '("*.min.js"
-               "*.map"
-               "*.bundle.js"
-               "*.min.css"
-               "tags"
-               "TAGS"
-               "GTAGS"
-               "GRTAGS"
-               "GPATH"
-               "cscope.files"
-               "*.json"
-               "*.log"))
-    (add-to-list 'grep-find-ignored-files v))
+;; @see https://github.com/szermatt/emacs-bash-completion
+(bash-completion-setup)
 
-  ;; wgrep and rgrep, inspired by http://oremacs.com/2015/01/27/my-refactoring-workflow/
-  (define-key grep-mode-map
-    (kbd "C-x C-q") 'wgrep-change-to-wgrep-mode))
+;; {{ eacl and other general grep (rgrep, grep ...) setup
+(eval-after-load 'grep
+  '(progn
+     (dolist (v '("auto"
+                  "target"
+                  "node_modules"
+                  "bower_components"
+                  "*dist"
+                  ".sass_cache"
+                  ".cache"
+                  ".npm"
+                  "elpa"))
+       (add-to-list 'grep-find-ignored-directories v))
 
-(defun my-wgrep-mark-deletion-hack (&optional arg)
-  "After mark a line for deletion, move to next line.
-ARG is ignored."
-  (ignore arg)
-  (forward-line))
-(advice-add 'wgrep-mark-deletion :after #'my-wgrep-mark-deletion-hack)
+     (dolist (v '("*.min.js"
+                  "*.map"
+                  "*.bundle.js"
+                  "*.min.css"
+                  "tags"
+                  "TAGS"
+                  "GTAGS"
+                  "GRTAGS"
+                  "GPATH"
+                  "cscope.files"
+                  "*.json"
+                  "*.log"))
+       (add-to-list 'grep-find-ignored-files v))))
+;; }}
 
-;; wgrep and rgrep, inspired by http://oremacs.com/2015/01/27/my-refactoring-workflow/
-(with-eval-after-load 'wgrep
-  '(define-key grep-mode-map
-     (kbd "C-c C-c") 'wgrep-finish-edit))
-
-;; {{ https://www.emacswiki.org/emacs/EmacsSession better than "desktop.el" or "savehist".
-;; Any global variable matching `session-globals-regexp' is saved *automatically*.
-(setq session-save-file (expand-file-name (concat my-emacs-d ".session")))
-(setq session-globals-max-size 2048)
-;; can store 8Mb string
-(setq session-globals-max-string (* 8 1024 1024))
-(setq session-globals-include '(kill-ring
-                                (session-file-alist 100 t)
-                                my-dired-commands-history
-                                file-name-history
-                                search-ring
-                                regexp-search-ring))
-(setq session-save-file-coding-system 'utf-8)
+;; {{ https://www.emacswiki.org/emacs/EmacsSession better than "desktop.el"
+(setq session-save-file (expand-file-name "~/.emacs.d/.session"))
 (add-hook 'after-init-hook 'session-initialize)
 ;; }}
 
@@ -902,6 +1054,7 @@ If the shell is already opened in some buffer, switch to that buffer."
 
 ;; {{ unique lines
 ;; https://gist.github.com/ramn/796527
+;; uniq-lines
 (defun uniq-lines (start end)
   (interactive "*r")
   (delete-duplicate-lines start end))
@@ -1057,156 +1210,25 @@ might be bad."
 
 (defun my-browse-current-file ()
   "Browse current file."
+(defun optimize-emacs-startup ()
+  "Speedup emacs startup by compiling."
   (interactive)
-  (my-browse-file buffer-file-name))
+  (let* ((dir (file-truename "~/.emacs.d/lisp/"))
+         (files (directory-files dir)))
+    (load (file-truename "~/.emacs.d/init.el"))
+    (dolist (f files)
+      (when (string-match-p ".*\.el$" f)
+        (let* ((default-directory dir))
+          (byte-compile-file (file-truename f) t))))))
 
-(defun my-browse-current-file-as-html ()
-  "Browse current file as html."
+;; random color theme
+(defun random-color-theme ()
+  "Random color theme."
   (interactive)
-  (cond
-   ((or (not buffer-file-name)
-        (not (file-exists-p buffer-file-name))
-        (not (string-match-p "html?$" buffer-file-name)))
-    (let* ((file (make-temp-file "my-browse-file-" nil ".html")))
-      (my-write-to-file (format "<html><body>%s</body></html>" (buffer-string)) file)
-      (my-browse-file file)
-      (my-run-with-idle-timer 4 (lambda (delete-file file)))))
-   (t
-    (my-browse-file buffer-file-name))))
-
-;; {{ which-key-mode
-(defvar my-show-which-key-when-press-C-h nil)
-(with-eval-after-load 'which-key
-  (setq which-key-allow-imprecise-window-fit t) ; performance
-  (setq which-key-separator ":")
-  (setq which-key-idle-delay 1.5)
-  (when my-show-which-key-when-press-C-h
-    ;; @see https://twitter.com/bartuka_/status/1327375348959498240?s=20
-    ;; Therefore, the which-key pane only appears if I hit C-h explicitly.
-    ;; C-c <C-h> for example - by Wanderson Ferreira
-    (setq which-key-idle-delay 10000)
-    (setq which-key-show-early-on-C-h t))
-  (setq which-key-idle-secondary-delay 0.05))
-(my-run-with-idle-timer 2 #'which-key-mode)
-;; }}
-
-;; {{ Answer Yes/No programmically when asked by `y-or-n-p'
-(defvar my-default-yes-no-answers nil
-    "Usage: (setq my-default-yes-no-answers '((t . \"question1\") (t . \"question2\")))).")
-(defun my-y-or-n-p-hack (orig-func &rest args)
-  "Answer yes or no automatically for some questions."
-  (let* ((prompt (car args))
-         rlt)
-    (cond
-     ((and my-default-yes-no-answers
-           (listp my-default-yes-no-answers))
-      (let* ((i 0) found cand)
-        (while (and (setq cand (nth i my-default-yes-no-answers))
-                    (not found))
-          (when (string-match-p (cdr cand) prompt)
-            (setq found t)
-            (setq rlt (car cand)))
-          (setq i (1+ i)))
-        (unless found (setq rlt (apply orig-func args)))))
-     (t
-      (setq rlt (apply orig-func args))))
-    rlt))
-(advice-add 'y-or-n-p :around #'my-y-or-n-p-hack)
-;; }}
-
-;; {{ eldoc
-(with-eval-after-load 'eldoc
-  ;; multi-line message should not display too soon
-  (setq eldoc-idle-delay 1)
-  (setq eldoc-echo-area-use-multiline-p t))
-;;}}
-
-;; {{ fetch subtitles
-(defvar my-fetch-subtitles-proxy nil
-  "http proxy to fetch subtitles, like http://127.0.0.1:8118 (privoxy).")
-
-(defun my-fetch-subtitles (&optional video-file)
-  "Fetch subtitles of VIDEO-FILE.
-See https://github.com/RafayGhafoor/Subscene-Subtitle-Grabber."
-  (let* ((cmd-prefix "subgrab -l EN"))
-    (when my-fetch-subtitles-proxy
-      (setq cmd-prefix (format "http_proxy=%s https_proxy=%s %s"
-                               my-fetch-subtitles-proxy
-                               my-fetch-subtitles-proxy
-                               cmd-prefix)))
-    (cond
-     (video-file
-      (let* ((default-directory (file-name-directory video-file)))
-        (shell-command (format "%s -m \"%s\" &"
-                               cmd-prefix
-                               (file-name-base video-file)))))
-     (t
-      (shell-command (format "%s --dir . &" cmd-prefix))))))
-;; }}
-
-(defvar my-sdcv-org-head-level 2)
-;; {{ use sdcv dictionary to find big word definition
-(defun my-sdcv-format-bigword (word zipf)
-  "Format WORD and ZIPF using sdcv dictionary."
-  (let* (rlt def)
-    (local-require 'sdcv)
-    ;; 2 level org format
-    (condition-case nil
-        (progn
-          (setq def (sdcv-search-witch-dictionary word sdcv-dictionary-complete-list))
-          (setq def (replace-regexp-in-string "^-->.*" "" def))
-          (setq def (replace-regexp-in-string "[\n\r][\n\r]+" "" def))
-          (setq rlt (format "%s %s (%s)\n%s\n"
-                            (make-string my-sdcv-org-head-level ?*)
-                            word
-                            zipf
-                            def)))
-      (error nil))
-    rlt))
-
-(defun my-lookup-big-word-definition-in-buffer ()
-  "Look up big word definitions."
-  (interactive)
-  (local-require 'mybigword)
-  (let* ((mybigword-default-format-function 'my-sdcv-format-bigword))
-    (mybigword-show-big-words-from-current-buffer)))
-;; }}
-
-;; {{ use pdf-tools to view pdf
-(when (and (display-graphic-p) *linux*)
-  (pdf-loader-install))
-;; }}
-
-;; {{ exe path
-(with-eval-after-load 'exec-path-from-shell
-  (dolist (var '("SSH_AUTH_SOCK" "SSH_AGENT_PID" "GPG_AGENT_INFO"))
-    (push var exec-path-from-shell-variables)))
-
-(when (and window-system (memq window-system '(mac ns)))
-  ;; @see https://github.com/purcell/exec-path-from-shell/issues/75
-  ;; I don't use those exec path anyway.
-  (my-run-with-idle-timer 4 #'exec-path-from-shell-initialize))
-;; }}
-
-(with-eval-after-load 'elec-pair
-  (setq electric-pair-inhibit-predicate 'my-electric-pair-inhibit))
-
-;; {{ markdown
-(defun markdown-mode-hook-setup ()
-  ;; Stolen from http://stackoverflow.com/a/26297700
-  ;; makes markdown tables saner via orgtbl-mode
-  ;; Insert org table and it will be automatically converted
-  ;; to markdown table
-  (my-ensure 'org-table)
-  (defun cleanup-org-tables ()
-    (save-excursion
-      (goto-char (point-min))
-      (while (search-forward "-+-" nil t) (replace-match "-|-"))))
-  (add-hook 'after-save-hook 'cleanup-org-tables nil 'make-it-local)
-  (orgtbl-mode 1) ; enable key bindings
-  ;; don't wrap lines because there is table in `markdown-mode'
-  (setq truncate-lines t))
-(add-hook 'markdown-mode-hook 'markdown-mode-hook-setup)
-;; }}
+  (unless (featurep 'counsel) (require 'counsel))
+  (let* ((available-themes (mapcar 'symbol-name (custom-available-themes)))
+         (theme (nth (random (length available-themes)) available-themes)))
+    (counsel-load-theme-action theme)
+    (message "Color theme [%s] loaded." theme)))
 
 (provide 'init-misc)

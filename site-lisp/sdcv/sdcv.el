@@ -15,7 +15,7 @@
 ;;
 ;; Features that might be required by this library:
 ;;
-;; `outline'
+;; `outline' `cl'
 ;;
 
 ;;; This file is NOT part of GNU Emacs
@@ -162,7 +162,8 @@
 
 ;;; Require
 (require 'outline)
-(require 'cl-lib)
+(eval-when-compile
+  (require 'cl))
 (require 'popup)
 
 ;;; Code:

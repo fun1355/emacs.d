@@ -1,19 +1,15 @@
-;; -*- coding: utf-8; lexical-binding: t; -*-
-
 ;; Use the system clipboard
-;; @see https://www.emacswiki.org/emacs/CopyAndPaste
-;; So `C-y' could paste from clipbord if you are NOT using emacs-nox
-;; I only use `paste-from-x-clipboard', not `C-y'.
 (setq x-select-enable-clipboard t
       x-select-enable-primary t)
 
 ;; kill-ring and clipboard are same? No, it's annoying!
 (setq save-interprogram-paste-before-kill nil)
 
+;; you need install xsel under Linux
+;; xclip has some problem when copying under Linux
 (defun copy-yank-str (msg &optional clipboard-only)
   (unless clipboard-only (kill-new msg))
-  (my-pclip msg)
-  msg)
+  (my-pclip msg))
 
 (defun cp-filename-of-current-buffer (&optional n)
   "Copy file name (NOT full path) into the yank ring and OS clipboard.
@@ -25,19 +21,25 @@ If N is not nil, copy file name and line number."
       (copy-yank-str s)
       (message "%s => clipboard&kill-ring" s))))
 
+(defun cp-ffip-ivy-last ()
+  "Copy visible keys of `ivy-last' into `kill-ring' and clipboard."
+  (interactive)
+  (unless (featurep 'find-file-in-project)
+    (require 'find-file-in-project))
+  (when ffip-ivy-last-saved
+    (copy-yank-str
+     (mapconcat (lambda (e)
+                  (format "%S" (if (consp e) (car e) e)))
+                (ivy-state-collection ffip-ivy-last-saved)
+                "\n"))
+    (message "%d items from ivy-last => clipboard & yank ring" (length ivy-last))))
+
 (defun cp-fullpath-of-current-buffer ()
   "Copy full path into the yank ring and OS clipboard"
   (interactive)
   (when buffer-file-name
     (copy-yank-str (file-truename buffer-file-name))
     (message "file full path => clipboard & yank ring")))
-
-(defun clipboard-to-kill-ring ()
-  "Copy from clipboard to `kill-ring'."
-  (interactive)
-  (let* ((warning-minimum-level :emergency))
-    (kill-new (my-gclip)))
-  (message "clipboard => kill-ring"))
 
 (defun kill-ring-to-clipboard ()
   "Copy from `kill-ring' to clipboard."
@@ -57,7 +59,7 @@ If N is not nil, copy file name and line number."
   "If NUM equals 1, copy the downcased string.
 If NUM equals 2, copy the captalized string.
 If NUM equals 3, copy the upcased string.
-If NUM equals 4, indent 4 spaces."
+If NUM equals 4, kill-ring => clipboard."
   (interactive "P")
   (let* ((thing (my-use-selected-string-or-ask "")))
     (if (region-active-p) (deactivate-mark))
@@ -70,8 +72,7 @@ If NUM equals 4, indent 4 spaces."
      ((= num 3)
       (setq thing (upcase thing)))
      ((= num 4)
-      (setq thing (string-trim-right (concat "    "
-                                             (mapconcat 'identity (split-string thing "\n") "\n    ")))))
+      (setq thing (car kill-ring)))
      (t
       (message "C-h f copy-to-x-clipboard to find right usage")))
 
@@ -80,12 +81,13 @@ If NUM equals 4, indent 4 spaces."
       (message "thing => clipboard!"))))
 
 (defun paste-from-x-clipboard(&optional n)
-  "Remove selected text and paste string clipboard.
+  "Paste string clipboard.
 If N is 1, we paste diff hunk whose leading char should be removed.
-If N is 2, paste into `kill-ring' too.
+If N is 2, paste into kill-ring too.
 If N is 3, converted dashed to camelcased then paste.
 If N is 4, rectangle paste. "
   (interactive "P")
+  ;; paste after the cursor in evil normal state
   (when (and (functionp 'evil-normal-state-p)
              (functionp 'evil-move-cursor-back)
              (evil-normal-state-p)
@@ -94,26 +96,10 @@ If N is 4, rectangle paste. "
     (forward-char))
   (let* ((str (my-gclip))
          (fn 'insert))
-
-    (when (> (length str) (* 256 1024))
-      ;; use light weight `major-mode' like `js-mode'
-      (when (derived-mode-p 'js2-mode)
-        (js-mode 1))
-      ;; turn off syntax highlight
-      (font-lock-mode -1))
-
-    ;; past a big string, stop lsp temporarily
-    (when (and (> (length str) 1024)
-               (boundp 'lsp-mode)
-               lsp-mode)
-      (lsp-disconnect)
-      (run-at-time 300 nil  #'lsp-deferred))
-
-    (my-delete-selected-region)
-
-    ;; paste after the cursor in evil normal state
     (cond
-     ((not n)) ; do nothing
+     ((not n)
+      ;; do nothing
+      )
      ((= 1 n)
       (setq str (replace-regexp-in-string "^\\(+\\|-\\|@@ $\\)" "" str)))
      ((= 2 n)

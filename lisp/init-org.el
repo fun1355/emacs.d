@@ -1,202 +1,324 @@
-;; -*- coding: utf-8; lexical-binding: t; -*-
-
 ;; some cool org tricks
 ;; @see http://emacs.stackexchange.com/questions/13820/inline-verbatim-and-code-with-quotes-in-org-mode
+
+;; {{ NO spell check for embedded snippets
+(defun org-mode-is-code-snippet ()
+  (let* (rlt
+         (begin-regexp "^[ \t]*#\\+begin_\\(src\\|html\\|latex\\|example\\)")
+         (end-regexp "^[ \t]*#\\+end_\\(src\\|html\\|latex\\|example\\)")
+         (case-fold-search t)
+         b e)
+    (save-excursion
+      (if (setq b (re-search-backward begin-regexp nil t))
+          (setq e (re-search-forward end-regexp nil t))))
+    (if (and b e (< (point) e)) (setq rlt t))
+    rlt))
+
+;; no spell check for property
+(defun org-mode-current-line-is-property ()
+  (string-match "^[ \t]+:[A-Z]+:[ \t]+" (my-line-str)))
+
+;; Please note flyspell only use ispell-word
+(defadvice org-mode-flyspell-verify (after org-mode-flyspell-verify-hack activate)
+  (let ((run-spellcheck ad-return-value))
+    (if ad-return-value
+      (cond
+       ((org-mode-is-code-snippet)
+        (setq run-spellcheck nil))
+       ((org-mode-current-line-is-property)
+        (setq run-spellcheck nil))))
+    (setq ad-return-value run-spellcheck)))
+;; }}
+
+;; Org v8 change log:
+;; @see http://orgmode.org/worg/org-8.0.html
+
+;; {{ export org-mode in Chinese into PDF
+;; @see http://freizl.github.io/posts/2012-04-06-export-orgmode-file-in-Chinese.html
+;; and you need install texlive-xetex on different platforms
+;; To install texlive-xetex:
+;;    `sudo USE="cjk" emerge texlive-xetex` on Gentoo Linux
+(setq org-latex-to-pdf-process ;; org v7
+      '("xelatex -interaction nonstopmode -output-directory %o %f"
+        "xelatex -interaction nonstopmode -output-directory %o %f"
+        "xelatex -interaction nonstopmode -output-directory %o %f"))
+(setq org-latex-pdf-process org-latex-to-pdf-process) ;; org v8
+;; }}
+
+(defun my-setup-odt-org-convert-process ()
+  (interactive)
+  (let ((cmd "/Applications/LibreOffice.app/Contents/MacOS/soffice"))
+    (when (and *is-a-mac* (file-exists-p cmd))
+      ;; org v7
+      (setq org-export-odt-convert-processes '(("LibreOffice" "/Applications/LibreOffice.app/Contents/MacOS/soffice --headless --convert-to %f%x --outdir %d %i")))
+      ;; org v8
+      (setq org-odt-convert-processes '(("LibreOffice" "/Applications/LibreOffice.app/Contents/MacOS/soffice --headless --convert-to %f%x --outdir %d %i"))))
+    ))
+
+(my-setup-odt-org-convert-process)
+
+(defun narrow-to-region-indirect-buffer-maybe (start end use-indirect-buffer)
+  "Indirect buffer could multiple widen on same file."
+  (if (region-active-p) (deactivate-mark))
+  (if use-indirect-buffer
+      (with-current-buffer (clone-indirect-buffer
+                            (generate-new-buffer-name
+                             (concat (buffer-name) "-indirect-"
+                                     (number-to-string start) "-"
+                                     (number-to-string end)))
+                            'display)
+        (narrow-to-region start end)
+        (goto-char (point-min)))
+      (narrow-to-region start end)))
+
+;; @see https://gist.github.com/mwfogleman/95cc60c87a9323876c6c
+(defun narrow-or-widen-dwim (&optional use-indirect-buffer)
+  "If the buffer is narrowed, it widens.
+ Otherwise, it narrows to region, or Org subtree.
+If use-indirect-buffer is not nil, use `indirect-buffer' to hold the widen content."
+  (interactive "P")
+  (cond ((buffer-narrowed-p) (widen))
+        ((region-active-p)
+         (narrow-to-region-indirect-buffer-maybe (region-beginning)
+                                                 (region-end)
+                                                 use-indirect-buffer))
+        ((equal major-mode 'org-mode)
+         (org-narrow-to-subtree))
+        ((equal major-mode 'diff-mode)
+         (let* (b e)
+           (save-excursion
+             (setq b (diff-beginning-of-file))
+             (setq e (progn (diff-end-of-file) (point))))
+           (when (and b e (< b e))
+             (narrow-to-region-indirect-buffer-maybe b e use-indirect-buffer))))
+        (t (error "Please select a region to narrow to"))))
+
+;; Various preferences
+(setq org-log-done t
+      org-completion-use-ido t
+      org-edit-src-content-indentation 0
+      org-edit-timestamp-down-means-later t
+      org-agenda-start-on-weekday nil
+      org-agenda-span 14
+      org-agenda-include-diary t
+      org-agenda-window-setup 'current-window
+      org-fast-tag-selection-single-key 'expert
+      org-export-kill-product-buffer-when-displayed t
+      ;; org v7
+      org-export-odt-preferred-output-format "doc"
+      ;; org v8
+      org-odt-preferred-output-format "doc"
+      org-tags-column 80
+      ;; org-startup-indented t
+      ;; {{ org 8.2.6 has some performance issue. Here is the workaround.
+      ;; @see http://punchagan.muse-amuse.in/posts/how-i-learnt-to-use-emacs-profiler.html
+      org-agenda-inhibit-startup t ;; ~50x speedup
+      org-agenda-use-tag-inheritance nil ;; 3-4x speedup
+      ;; }}
+      )
+
+;; Refile targets include this file and any file contributing to the agenda - up to 5 levels deep
+(setq org-refile-targets (quote ((nil :maxlevel . 5) (org-agenda-files :maxlevel . 5))))
+;; Targets start with the file name - allows creating level 1 tasks
+(setq org-refile-use-outline-path (quote file))
+;; Targets complete in steps so we start with filename, TAB shows the next level of targets etc
+(setq org-outline-path-complete-in-steps t)
+
+(setq org-todo-keywords
+      (quote ((sequence "TODO(t)" "STARTED(s)" "|" "DONE(d!/!)")
+              (sequence "WAITING(w@/!)" "SOMEDAY(S)" "PROJECT(P@)" "|" "CANCELLED(c@/!)"))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Org clock
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(with-eval-after-load 'org-clock
-  ;; Change task state to STARTED when clocking in
-  (setq org-clock-in-switch-to-state "STARTED")
-  ;; Save clock data and notes in the LOGBOOK drawer
-  (setq org-clock-into-drawer t)
-  ;; Removes clocked tasks with 0:00 duration
-  (setq org-clock-out-remove-zero-time-clocks t)
+;; Change task state to STARTED when clocking in
+(setq org-clock-in-switch-to-state "STARTED")
+;; Save clock data and notes in the LOGBOOK drawer
+(setq org-clock-into-drawer t)
+;; Removes clocked tasks with 0:00 duration
+(setq org-clock-out-remove-zero-time-clocks t)
 
-  ;; Show the clocked-in task - if any - in the header line
-  (defun sanityinc/show-org-clock-in-header-line ()
-    (setq-default header-line-format '((" " org-mode-line-string " "))))
+;; Show the clocked-in task - if any - in the header line
+(defun sanityinc/show-org-clock-in-header-line ()
+  (setq-default header-line-format '((" " org-mode-line-string " "))))
 
-  (defun sanityinc/hide-org-clock-from-header-line ()
-    (setq-default header-line-format nil))
+(defun sanityinc/hide-org-clock-from-header-line ()
+  (setq-default header-line-format nil))
 
-  (add-hook 'org-clock-in-hook 'sanityinc/show-org-clock-in-header-line)
-  (add-hook 'org-clock-out-hook 'sanityinc/hide-org-clock-from-header-line)
-  (add-hook 'org-clock-cancel-hook 'sanityinc/hide-org-clock-from-header-line)
+(add-hook 'org-clock-in-hook 'sanityinc/show-org-clock-in-header-line)
+(add-hook 'org-clock-out-hook 'sanityinc/hide-org-clock-from-header-line)
+(add-hook 'org-clock-cancel-hook 'sanityinc/hide-org-clock-from-header-line)
 
-  (define-key org-clock-mode-line-map [header-line mouse-2] 'org-clock-goto)
-  (define-key org-clock-mode-line-map [header-line mouse-1] 'org-clock-menu))
+(eval-after-load 'org-clock
+  '(progn
+     (define-key org-clock-mode-line-map [header-line mouse-2] 'org-clock-goto)
+     (define-key org-clock-mode-line-map [header-line mouse-1] 'org-clock-menu)))
+
+(eval-after-load 'org
+  '(progn
+     (setq org-imenu-depth 9)
+     (require 'org-clock)
+     ;; @see http://irreal.org/blog/1
+     (setq org-src-fontify-natively t)))
+
+(defun org-mode-hook-setup ()
+  (setq evil-auto-indent nil)
+  ;; org-mode's own flycheck will be loaded
+  (enable-flyspell-mode-conditionally)
+
+  ;; but I don't want to auto spell check when typing,
+  ;; please comment out `(flyspell-mode -1)` if you prefer auto spell check
+  (flyspell-mode -1)
+
+  ;; for some reason, org8 disable odt export by default
+  (add-to-list 'org-export-backends 'odt)
+  ;; (add-to-list 'org-export-backends 'org) ; for org-mime
+
+  ;; org-mime setup, run this command in org-file, than yank in `message-mode'
+  (local-set-key (kbd "C-c M-o") 'org-mime-org-buffer-htmlize)
+
+  ;; don't spell check double words
+  (setq flyspell-check-doublon nil)
+
+  ;; display wrapped lines instead of truncated lines
+  (setq truncate-lines nil)
+  (setq word-wrap t))
+(add-hook 'org-mode-hook 'org-mode-hook-setup)
+
+(defadvice org-open-at-point (around org-open-at-point-choose-browser activate)
+  "`C-u M-x org-open-at-point` open link with `browse-url-generic-program'"
+  (let* ((browse-url-browser-function
+          (cond
+           ;; open with `browse-url-generic-program'
+           ((equal (ad-get-arg 0) '(4)) 'browse-url-generic)
+           ;; open with w3m
+           (t 'w3m-browse-url))))
+    ad-do-it))
+
+(defadvice org-publish (around org-publish-advice activate)
+  "Stop running major-mode hook when org-publish"
+  (let ((old load-user-customized-major-mode-hook))
+    (setq load-user-customized-major-mode-hook nil)
+    ad-do-it
+    (setq load-user-customized-major-mode-hook old)))
 
 ;; {{ org2nikola set up
 (setq org2nikola-output-root-directory "~/.config/nikola")
+(setq org2nikola-use-google-code-prettify t)
+(setq org2nikola-prettify-unsupported-language
+      '(elisp "lisp"
+              emacs-lisp "lisp"))
 ;; }}
+
+
+(setq org-export-html-style "<style type=\"text/css\">
+body {
+     font-family:Times,serif;
+     font-size:100%;
+     line-height:1.5em;
+     max-width: 560px;
+     min-width: 550px;
+     margin:3% auto;
+}
+.author {
+     display:none;
+}
+.title {
+     font-size:2em;
+     line-height:2em;
+     margin:0;
+     padding:0;
+     text-align:center;
+}
+.todo {
+     color:red;
+}
+.done {
+     color:green;
+}
+.WAITING  {
+}
+.timestamp {
+     color:grey;
+}
+.timestamp-kwd {
+     color:CadetBlue;
+}
+.timestamp-wrapper {
+}
+.tag {
+     background-color:lightblue;
+     font-weight:normal;
+}
+._HOME {
+}
+.target {
+     background-color:lavender;
+}
+.linenr {
+}
+.code-highlighted {
+}
+h2 {
+     background-color:#AEC5CE;
+     font-size:1.5em;
+     margin:10px 0;
+     padding:0 2px;
+}
+h3 {
+     border-bottom:1px solid #9AB7C2;
+     font-size:1.2em;
+     margin:5px 0;
+}
+h4 {
+     font-size:1em;
+     margin:5px 0;
+}
+p {
+     margin:8px 0 0 1em;
+}
+#postamble {
+     border:1px solid gray;
+     color:gray;
+     font-size:13px;
+     font-style:italic;
+     line-height:1em;
+     margin-top:2em;
+     padding-bottom:5px;
+}
+</style>")
+
 
 (defun org-demote-or-promote (&optional is-promote)
-  "Demote or promote current org tree."
   (interactive "P")
-  (save-excursion
-    (beginning-of-line)
-    (unless (or (region-active-p)
-                (let ((line (thing-at-point 'line t)))
-                  (and (string-match-p "^\\*+ $" line) ;; is node only one spaced
-                       (= (point) (- (point-max) (length line))) ;; is line at EOF
-                       )))
-      (org-mark-subtree)))
-  (if is-promote (org-do-promote) (org-do-demote)))
+  (unless (region-active-p)
+    (org-mark-subtree))
+  (if is-promote (org-do-promote)
+    (org-do-demote)))
 
 ;; {{ @see http://orgmode.org/worg/org-contrib/org-mime.html
-(with-eval-after-load 'org-mime
-  (setq org-mime-export-options '(:section-numbers nil :with-author nil :with-toc nil))
-  (defun org-mime-html-hook-setup ()
-    (org-mime-change-element-style "pre"
-                                   "color:#E6E1DC; background-color:#232323; padding:0.5em;")
-    (org-mime-change-element-style "blockquote"
-                                   "border-left: 2px solid gray; padding-left: 4px;"))
-  (add-hook 'org-mime-html-hook 'org-mime-html-hook-setup))
+(defun org-mime-html-hook-setup ()
+  (org-mime-change-element-style "pre"
+                                 "color:#E6E1DC; background-color:#232323; padding:0.5em;")
+  (org-mime-change-element-style "blockquote"
+                                 "border-left: 2px solid gray; padding-left: 4px;"))
+
+(eval-after-load 'org-mime
+  '(progn
+     (setq org-mime-export-options '(:section-numbers nil :with-author nil :with-toc nil))
+     (add-hook 'org-mime-html-hook 'org-mime-html-hook-setup)))
+
+;; demo video: http://vimeo.com/album/1970594/video/13158054
+(add-hook 'message-mode-hook
+          (lambda ()
+            (local-set-key (kbd "C-c M-o") 'org-mime-htmlize)))
 ;; }}
 
-(defun org-mode-hook-setup ()
-  (unless (is-buffer-file-temp)
-    (setq evil-auto-indent nil)
-
-    ;; org-mime setup, run this command in org-file, than yank in `message-mode'
-    (local-set-key (kbd "C-c M-o") 'org-mime-org-buffer-htmlize)
-
-    ;; don't spell check double words
-    (setq-local wucuo-flyspell-check-doublon nil)
-
-    ;; create updated table of contents of org file
-    ;; @see https://github.com/snosov1/toc-org
-    (toc-org-enable)
-
-    ;; default `org-indent-line' inserts extra spaces at the beginning of lines
-    (setq-local indent-line-function 'indent-relative)
-
-    ;; display wrapped lines instead of truncated lines
-    (setq truncate-lines nil)
-    (setq word-wrap t)))
-(add-hook 'org-mode-hook 'org-mode-hook-setup)
-
-(with-eval-after-load 'org
-  ;; {{
-  (defvar my-org-src--saved-temp-window-config nil
-    "Window layout before edit special element.")
-  (defun my-org-edit-special (&optional arg)
-    "Save current window layout before `org-edit' buffer is open.
-ARG is ignored."
-    (setq my-org-src--saved-temp-window-config (current-window-configuration)))
-
-  (defun my-org-edit-src-exit ()
-    "Restore the window layout that was saved before `org-edit-special' is called."
-    (when my-org-src--saved-temp-window-config
-      (set-window-configuration my-org-src--saved-temp-window-config)
-      (setq my-org-src--saved-temp-window-config nil)))
-
-
-  ;; org 9.3 do not restore windows layout when editing special element
-  (advice-add 'org-edit-special :before 'my-org-edit-special)
-  (advice-add 'org-edit-src-exit :after 'my-org-edit-src-exit)
-  ;; }}
-
-  (my-ensure 'org-clock)
-
-  ;; org-re-reveal requires org 8.3
-  (my-ensure 'org-re-reveal)
-
-  ;; odt export
-  (add-to-list 'org-export-backends 'odt)
-
-  ;; markdown export
-  (my-ensure 'ox-md)
-  (add-to-list 'org-export-backends 'md)
-
-  (defun org-agenda-show-agenda-and-todo (&optional arg)
-    "Better org-mode agenda view."
-    (interactive "P")
-    (org-agenda arg "n"))
-
-
-  (defun my-org-open-at-point-hack (orig-func &rest args)
-    "\"C-u M-x org-open-at-point\" to open link with `browse-url-generic-program'.
-It's value could be customized liked \"/usr/bin/firefox\".
-\"M-x org-open-at-point\" to open the url with embedded emacs-w3m."
-    (let* ((arg (nth 0 args))
-           (reference-buffer (nth 1 args))
-           (browse-url-browser-function
-            (cond
-             ;; open with `browse-url-generic-program'
-             ((equal arg '(4)) 'browse-url-generic)
-             ;; open with w3m
-             (t 'w3m-browse-url))))
-      (apply orig-func args)))
-  (advice-add 'org-open-at-point :around #'my-org-open-at-point-hack)
-
-  (defun my-org-publish-hack (orig-func &rest args)
-    "Stop running `major-mode' hook when `org-publish'."
-    (let* ((my-load-user-customized-major-mode-hook nil))
-      (apply orig-func args)))
-  (advice-add 'org-publish :around #'my-org-publish-hack)
-
-  ;; {{ convert to odt
-  (defun my-setup-odt-org-convert-process ()
-    (interactive)
-    (let* ((cmd "/Applications/LibreOffice.app/Contents/MacOS/soffice"))
-      (when (and *is-a-mac* (file-exists-p cmd))
-        ;; org v8
-        (setq org-odt-convert-processes
-              '(("LibreOffice" "/Applications/LibreOffice.app/Contents/MacOS/soffice --headless --convert-to %f%x --outdir %d %i"))))))
-  (my-setup-odt-org-convert-process)
-  ;; }}
-
-  (defun my-org-refile-hack (orig-func &rest args)
-    "When `org-refile' scans org files,
-skip user's own code in `org-mode-hook'."
-    (let* ((my-force-buffer-file-temp-p t))
-      (apply orig-func args)))
-  (advice-add 'org-refile :around #'my-org-refile-hack)
-
-  ;; {{ export org-mode in Chinese into PDF
-  ;; @see http://freizl.github.io/posts/tech/2012-04-06-export-orgmode-file-in-Chinese.html
-  ;; and you need install texlive-xetex on different platforms
-  ;; To install texlive-xetex:
-  ;;    `sudo USE="cjk" emerge texlive-xetex` on Gentoo Linux
-  (setq org-latex-pdf-process
-        '("xelatex -interaction nonstopmode -output-directory %o %f"
-          "xelatex -interaction nonstopmode -output-directory %o %f"
-          "xelatex -interaction nonstopmode -output-directory %o %f")) ;; org v8
-  ;; }}
-
-  ;; misc
-  (setq org-log-done t
-        org-completion-use-ido t
-        org-edit-src-content-indentation 0
-        org-edit-timestamp-down-means-later t
-        org-agenda-start-on-weekday nil
-        org-agenda-span 14
-        org-agenda-include-diary t
-        org-agenda-window-setup 'current-window
-        org-fast-tag-selection-single-key 'expert
-        org-export-kill-product-buffer-when-displayed t
-        ;; org-startup-indented t
-        ;; {{ org 8.2.6 has some performance issue. Here is the workaround.
-        ;; @see http://punchagan.muse-amuse.in/posts/how-i-learnt-to-use-emacs-profiler.html
-        org-agenda-inhibit-startup t ;; ~50x speedup
-        org-agenda-use-tag-inheritance nil ;; 3-4x speedup
-        ;; }}
-        ;; org v8
-        org-odt-preferred-output-format "doc"
-        org-tags-column 80
-
-        ;; Refile targets include this file and any file contributing to the agenda - up to 5 levels deep
-        org-refile-targets '((nil :maxlevel . 5) (org-agenda-files :maxlevel . 5))
-        org-refile-use-outline-path 'file
-        org-outline-path-complete-in-steps nil
-        org-todo-keywords (quote ((sequence "TODO(t)" "STARTED(s)" "|" "DONE(d!/!)")
-                                  (sequence "WAITING(w@/!)" "SOMEDAY(S)" "PROJECT(P@)" "|" "CANCELLED(c@/!)")))
-        org-imenu-depth 9
-        ;; @see http://irreal.org/blog/1
-        org-src-fontify-natively t))
+(defun org-agenda-show-agenda-and-todo (&optional arg)
+  "Better org-mode agenda view."
+  (interactive "P")
+  (org-agenda arg "n"))
 
 (provide 'init-org)
